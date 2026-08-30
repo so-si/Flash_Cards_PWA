@@ -1,4 +1,4 @@
-const CACHE_NAME = 'flash-cards-pwa-v4';
+const CACHE_NAME = 'flash-cards-pwa-v5';
 const APP_SHELL = ['./', './index.html', './config.js', './manifest.json'];
 
 self.addEventListener('install', event => {
