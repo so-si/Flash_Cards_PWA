@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#000000">
+  <title>Flash Cards</title>
+  <link rel="manifest" href="./manifest.json">
+  <style>
+    *{box-sizing:border-box}html,body{margin:0;min-height:100%;background:#000;color:#fff;font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Yu Gothic",sans-serif}body{padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}button,input{font:inherit}.wrap{max-width:760px;margin:0 auto;padding:22px 18px 36px}.title{font-size:30px;font-weight:800;margin:4px 0 20px}.panel{border:1px solid #444;border-radius:18px;padding:18px;margin:0 0 16px}.row{display:flex;gap:10px;flex-wrap:wrap}.btn{border:1px solid #777;background:#111;color:#fff;border-radius:14px;padding:14px 16px;font-size:17px;font-weight:700;cursor:pointer}.btn.primary{background:#fff;color:#000;border-color:#fff}.btn.answer{flex:1;min-width:130px;font-size:34px;padding:18px}.btn:disabled{opacity:.45}.muted{color:#aaa;font-size:14px;line-height:1.6}.status{font-size:15px;line-height:1.7;margin-top:10px}.subjects{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:12px}.subject{display:flex;align-items:center;gap:8px;border:1px solid #444;border-radius:12px;padding:12px}.subject input{width:20px;height:20px}.hidden{display:none!important}.card-meta{font-size:18px;color:#bbb;line-height:1.6}.card-no{font-size:23px;font-weight:800;color:#fff}.precedent{font-size:20px;font-weight:700;margin-top:4px}.question{font-size:25px;line-height:1.65;font-weight:650;white-space:pre-wrap;margin:28px 0}.result{border-top:1px solid #444;margin-top:22px;padding-top:22px}.answer-text{font-size:34px;font-weight:900}.accuracy{font-size:21px;margin-top:10px}.top-actions{display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:12px}.small{padding:9px 12px;font-size:14px}.message{min-height:24px;color:#bbb;font-size:14px;margin-top:10px}.stats-big{font-size:22px;font-weight:800;margin:5px 0}.offline-label{font-size:13px;color:#aaa}.next{width:100%;margin-top:22px;font-size:20px;padding:16px}@media(max-width:520px){.wrap{padding:16px 14px 28px}.title{font-size:27px}.question{font-size:23px}.subjects{grid-template-columns:1fr}.panel{padding:15px}}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <section id="homeView">
+    <div class="title">短答 Flash Cards</div>
+
+    <div class="panel">
+      <div class="row">
+        <button class="btn primary" id="onlineBtn">オンラインで最新版を読む</button>
+        <button class="btn" id="offlineBtn">オフライン用に保存</button>
+        <button class="btn small" id="tokenBtn">接続キーを設定・変更</button>
+      </div>
+      <div id="offlineStatus" class="status"></div>
+      <div id="message" class="message"></div>
+    </div>
+
+    <div class="panel">
+      <div class="muted">累積成績</div>
+      <div id="statsText" class="stats-big">回答 0問 / 正解 0問 / 正答率 0.0%</div>
+      <div id="pendingText" class="offline-label"></div>
+    </div>
+
+    <div class="panel">
+      <div style="font-size:20px;font-weight:800">科目</div>
+      <div id="subjects" class="subjects"></div>
+      <div class="row" style="margin-top:14px">
+        <button class="btn small" id="allSubjectsBtn">全選択</button>
+        <button class="btn small" id="clearSubjectsBtn">全解除</button>
+      </div>
+    </div>
+
+    <button class="btn primary" id="startBtn" style="width:100%;font-size:21px;padding:17px">学習開始</button>
+  </section>
+
+  <section id="cardView" class="hidden">
+    <div class="top-actions">
+      <button class="btn small" id="backBtn">← 戻る</button>
+      <div id="progress" class="muted"></div>
+    </div>
+    <div class="panel">
+      <div class="card-meta">
+        <div id="cardNo" class="card-no"></div>
+        <div id="cardSubject"></div>
+        <div id="cardPrecedent" class="precedent"></div>
+      </div>
+      <div id="question" class="question"></div>
+      <div id="answerButtons" class="row">
+        <button class="btn answer" data-answer="○">○</button>
+        <button class="btn answer" data-answer="×">×</button>
+      </div>
+      <div id="result" class="result hidden">
+        <div id="correctAnswer" class="answer-text"></div>
+        <div id="accuracy" class="accuracy"></div>
+        <button class="btn primary next" id="nextBtn">次の問題</button>
+      </div>
+    </div>
+  </section>
+</div>
+<script src="./config.js"></script>
+<script>
+const API_URL=(window.FLASH_CARDS_CONFIG||{}).apiUrl||'';
+const TOKEN_KEY='flashCardsApiTokenV1';
+const OFFLINE_KEY='flashCardsOfflineCardsV1';
+const PENDING_KEY='flashCardsPendingV1';
+const STATS_KEY='flashCardsStatsV1';
+const SUBJECT_ORDER=['憲法','民法','行政法','商法','会社法','民事訴訟法','民訴法','刑法','刑事訴訟法','刑訴法'];
+
+let sessionCards=[];
+let studyCards=[];
+let currentIndex=0;
+let answered=false;
+let remoteStats=loadJson(STATS_KEY,{total:0,correct:0});
+
+function loadJson(key,fallback){try{const v=JSON.parse(localStorage.getItem(key));return v??fallback}catch{return fallback}}
+function saveJson(key,value){localStorage.setItem(key,JSON.stringify(value))}
+function token(){return localStorage.getItem(TOKEN_KEY)||''}
+function setMessage(text){document.getElementById('message').textContent=text||''}
+function normalizeAnswer(v){return ['〇','○'].includes(String(v).trim())?'○':['✕','×','X','x'].includes(String(v).trim())?'×':String(v).trim()}
+function uuid(){return (crypto&&crypto.randomUUID)?crypto.randomUUID():'fc_'+Date.now()+'_'+Math.random().toString(36).slice(2)}
+
+function apiRequest(action,payload={}){
+  if(!API_URL) return Promise.reject(new Error('GAS URLが設定されていません。'));
+  if(!token()) return Promise.reject(new Error('先に接続キーを設定してください。'));
+  return new Promise((resolve,reject)=>{
+    const cb='fc_'+Date.now()+'_'+Math.random().toString(36).slice(2);
+    const script=document.createElement('script');
+    let timer;
+    window[cb]=(data)=>{clearTimeout(timer);delete window[cb];script.remove();if(data&&data.success===false)reject(new Error(data.error||'APIエラー'));else resolve(data||{})};
+    timer=setTimeout(()=>{delete window[cb];script.remove();reject(new Error('通信がタイムアウトしました。'))},20000);
+    const q=new URLSearchParams({action,callback:cb,token:token(),payload:JSON.stringify(payload)});
+    script.src=API_URL+'?'+q.toString();
+    script.onerror=()=>{clearTimeout(timer);delete window[cb];script.remove();reject(new Error('GASへの接続に失敗しました。'))};
+    document.head.appendChild(script);
+  });
+}
+
+function setApiToken(){
+  const v=prompt('接続キーを入力してください。',token());
+  if(v!==null){localStorage.setItem(TOKEN_KEY,v.trim());setMessage('接続キーを保存しました。')}
+}
+
+function getOfflineData(){return loadJson(OFFLINE_KEY,null)}
+function availableCards(){return sessionCards.length?sessionCards:(getOfflineData()?.cards||[])}
+
+function updateOfflineStatus(){
+  const d=getOfflineData();
+  document.getElementById('offlineStatus').textContent=d&&Array.isArray(d.cards)?`オフライン保存：${d.cards.length}問 / ${new Date(d.updatedAt).toLocaleString('ja-JP')}`:'オフライン保存：未保存';
+}
+
+function subjectSort(a,b){
+  const ia=SUBJECT_ORDER.indexOf(a),ib=SUBJECT_ORDER.indexOf(b);
+  if(ia>=0||ib>=0){if(ia<0)return 1;if(ib<0)return -1;return ia-ib}
+  return a.localeCompare(b,'ja');
+}
+
+function renderSubjects(cards){
+  const box=document.getElementById('subjects');box.innerHTML='';
+  const subjects=[...new Set(cards.map(c=>c.subject).filter(Boolean))].sort(subjectSort);
+  subjects.forEach((s,i)=>{
+    const label=document.createElement('label');label.className='subject';
+    const input=document.createElement('input');input.type='checkbox';input.value=s;input.checked=true;
+    label.appendChild(input);label.appendChild(document.createTextNode(s));box.appendChild(label);
+  });
+}
+
+async function loadOnlineCards(){
+  if(!navigator.onLine){setMessage('オフラインです。保存済みカードを使ってください。');return}
+  try{
+    setMessage('最新版を取得しています…');
+    const r=await apiRequest('getFlashCards');
+    sessionCards=Array.isArray(r.cards)?r.cards:[];
+    renderSubjects(sessionCards);setMessage(`最新版 ${sessionCards.length}問を読み込みました。`);
+    await refreshStats();await syncPending();
+  }catch(e){setMessage(e.message)}
+}
+
+async function saveOfflineCards(){
+  if(!navigator.onLine){setMessage('オフライン中は更新できません。');return}
+  try{
+    setMessage('オフライン用カードを保存しています…');
+    const r=await apiRequest('getFlashCards');
+    const cards=Array.isArray(r.cards)?r.cards:[];
+    saveJson(OFFLINE_KEY,{cards,updatedAt:new Date().toISOString()});
+    sessionCards=cards;renderSubjects(cards);updateOfflineStatus();setMessage(`${cards.length}問をオフライン用に保存しました。`);
+    await refreshStats();await syncPending();
+  }catch(e){setMessage(e.message)}
+}
+
+function pendingEvents(){return loadJson(PENDING_KEY,[])}
+function setPending(events){saveJson(PENDING_KEY,events);updateStatsDisplay()}
+
+function displayStats(){
+  const p=pendingEvents();
+  return {total:Number(remoteStats.total||0)+p.length,correct:Number(remoteStats.correct||0)+p.filter(x=>x.isCorrect).length};
+}
+function updateStatsDisplay(){
+  const s=displayStats();const rate=s.total?((s.correct/s.total)*100).toFixed(1):'0.0';
+  document.getElementById('statsText').textContent=`回答 ${s.total}問 / 正解 ${s.correct}問 / 正答率 ${rate}%`;
+  const p=pendingEvents();document.getElementById('pendingText').textContent=p.length?`未同期の回答：${p.length}件`:'回答履歴は同期済みです。';
+}
+
+async function refreshStats(){
+  if(!navigator.onLine||!token())return;
+  try{
+    const r=await apiRequest('getFlashStats');
+    if(r.stats){remoteStats={total:Number(r.stats.total||0),correct:Number(r.stats.correct||0)};saveJson(STATS_KEY,remoteStats);updateStatsDisplay()}
+  }catch(e){console.warn(e)}
+}
+
+async function syncPending(){
+  if(!navigator.onLine||!token())return;
+  let q=pendingEvents();if(!q.length){await refreshStats();return}
+  const remain=[];
+  for(const event of q){
+    try{await apiRequest('saveFlashResult',event)}catch(e){remain.push(event)}
+  }
+  setPending(remain);
+  if(remain.length===0) await refreshStats();
+}
+
+function selectedSubjects(){return [...document.querySelectorAll('#subjects input:checked')].map(x=>x.value)}
+function shuffle(a){const x=[...a];for(let i=x.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[x[i],x[j]]=[x[j],x[i]]}return x}
+
+function startStudy(){
+  const cards=availableCards();if(!cards.length){setMessage('カードがありません。まず最新版を読むか、オフライン用に保存してください。');return}
+  const selected=selectedSubjects();studyCards=shuffle(cards.filter(c=>selected.length===0||selected.includes(c.subject)));
+  if(!studyCards.length){setMessage('選択した科目にカードがありません。');return}
+  currentIndex=0;document.getElementById('homeView').classList.add('hidden');document.getElementById('cardView').classList.remove('hidden');showCard();
+}
+
+function showCard(){
+  answered=false;const c=studyCards[currentIndex];
+  document.getElementById('cardNo').textContent=`問${c.no||c.id||''}`;
+  document.getElementById('cardSubject').textContent=c.subject||'';
+  document.getElementById('cardPrecedent').textContent=c.precedent||'';
+  document.getElementById('question').textContent=c.question||'';
+  document.getElementById('progress').textContent=`${currentIndex+1} / ${studyCards.length}`;
+  document.getElementById('answerButtons').classList.remove('hidden');document.getElementById('result').classList.add('hidden');
+}
+
+function answerCard(userAnswer){
+  if(answered)return;answered=true;const c=studyCards[currentIndex];const correct=normalizeAnswer(c.answer);const chosen=normalizeAnswer(userAnswer);const isCorrect=correct===chosen;
+  const event={eventId:uuid(),timestamp:new Date().toISOString(),cardNo:String(c.no||c.id||''),subject:c.subject||'',userAnswer:chosen,correctAnswer:correct,isCorrect};
+  const q=pendingEvents();q.push(event);setPending(q);
+  document.getElementById('answerButtons').classList.add('hidden');document.getElementById('result').classList.remove('hidden');
+  document.getElementById('correctAnswer').textContent=`正答：${correct}`;
+  const s=displayStats();const rate=s.total?((s.correct/s.total)*100).toFixed(1):'0.0';document.getElementById('accuracy').textContent=`正答率：${s.correct} / ${s.total}（${rate}%）`;
+  syncPending();
+}
+
+function nextCard(){currentIndex++;if(currentIndex>=studyCards.length)currentIndex=0;showCard()}
+function backHome(){document.getElementById('cardView').classList.add('hidden');document.getElementById('homeView').classList.remove('hidden');updateStatsDisplay()}
+
+function init(){
+  updateOfflineStatus();updateStatsDisplay();const cards=availableCards();if(cards.length)renderSubjects(cards);
+  document.getElementById('onlineBtn').onclick=loadOnlineCards;document.getElementById('offlineBtn').onclick=saveOfflineCards;document.getElementById('tokenBtn').onclick=setApiToken;document.getElementById('startBtn').onclick=startStudy;document.getElementById('backBtn').onclick=backHome;document.getElementById('nextBtn').onclick=nextCard;
+  document.querySelectorAll('[data-answer]').forEach(b=>b.onclick=()=>answerCard(b.dataset.answer));
+  document.getElementById('allSubjectsBtn').onclick=()=>document.querySelectorAll('#subjects input').forEach(x=>x.checked=true);
+  document.getElementById('clearSubjectsBtn').onclick=()=>document.querySelectorAll('#subjects input').forEach(x=>x.checked=false);
+  if(navigator.onLine&&token()){syncPending();refreshStats()}
+  if('serviceWorker'in navigator)navigator.serviceWorker.register('./service-worker.js').catch(console.warn);
+}
+window.addEventListener('online',()=>{syncPending();refreshStats()});
+document.addEventListener('DOMContentLoaded',init);
+</script>
+</body>
+</html>
