@@ -98,6 +98,35 @@ function formatJstDate_(date) {
   return Utilities.formatDate(date, JST_TIMEZONE, 'yyyy-MM-dd');
 }
 
+function normalizeStudyDate_(value, fallbackValue) {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return formatJstDate_(value);
+  }
+
+  const text = normalizeText(value);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+    return text;
+  }
+
+  if (text) {
+    const parsed = new Date(text);
+    if (!Number.isNaN(parsed.getTime())) {
+      return formatJstDate_(parsed);
+    }
+  }
+
+  if (fallbackValue) {
+    const fallbackDate = fallbackValue instanceof Date
+      ? fallbackValue
+      : new Date(fallbackValue);
+    if (!Number.isNaN(fallbackDate.getTime())) {
+      return formatJstDate_(fallbackDate);
+    }
+  }
+
+  return '';
+}
+
 function getFlashSheet_() {
   const sheet = getSpreadsheet_().getSheetByName(FLASH_SHEET_NAME);
   if (!sheet) throw new Error('Flash シートが見つかりません。');
@@ -266,11 +295,7 @@ function getFlashStatsBundle() {
       questions[cardNo].total += 1;
       if (isCorrect) questions[cardNo].correct += 1;
 
-      let studyDate = normalizeText(row[7]);
-      if (!studyDate && row[0]) {
-        const eventDate = row[0] instanceof Date ? row[0] : new Date(row[0]);
-        if (!Number.isNaN(eventDate.getTime())) studyDate = formatJstDate_(eventDate);
-      }
+      const studyDate = normalizeStudyDate_(row[7], row[0]);
       if (studyDate === today) todayCount += 1;
     });
   }
