@@ -4,6 +4,7 @@ const FLASH_HISTORY_SHEET_NAME = 'FlashHistory';
 const FLASH_Q_STATS = 'FlashStatsQuestion';
 const FLASH_S_STATS = 'FlashStatsSubject';
 const FLASH_D_STATS = 'FlashStatsDaily';
+const FLASH_STATS_BACKUP_KEY = 'FLASH_STATS_SUMMARY_BACKUP_V1';
 const JST_TIMEZONE = 'Asia/Tokyo';
 const FLASH_DAILY_GOAL = 50;
 
@@ -23,6 +24,7 @@ function doGet(e) {
       case 'getFlashQuestionStats': response = {success:true,stats:getFlashQuestionStats(payload.cardNo)}; break;
       case 'getFlashStatsBundle': response = {success:true,bundle:getFlashStatsBundle()}; break;
       case 'rebuildFlashStats': response = rebuildFlashStats(); break;
+      case 'repairFlashStats': response = repairFlashStats(); break;
       default: throw new Error('不明なAPIアクションです。');
     }
     return createApiOutput_(callback,response);
@@ -31,14 +33,14 @@ function doGet(e) {
   }
 }
 
-function normalizeCallback_(v){const s=normalizeText(v);if(!/^[A-Za-z_$][0-9A-Za-z_$\.]*$/.test(s))throw new Error('callbackが不正です。');return s;}
+function normalizeCallback_(v){const s=normalizeText(v);if(!/^[A-Za-z_$][0-9A-Za-z_$\\.]*$/.test(s))throw new Error('callbackが不正です。');return s;}
 function verifyApiToken_(v){const expected=PropertiesService.getScriptProperties().getProperty('API_TOKEN');if(expected&&normalizeText(v)!==expected)throw new Error('APIトークンが不正です。');}
 function createApiOutput_(cb,data){return ContentService.createTextOutput(cb+'('+JSON.stringify(data)+');').setMimeType(ContentService.MimeType.JAVASCRIPT);}
 function ss_(){return SpreadsheetApp.openById(SPREADSHEET_ID);}
 function normalizeText(v){return v==null?'':String(v).trim();}
 function formatJstDate_(d){return Utilities.formatDate(d,JST_TIMEZONE,'yyyy-MM-dd');}
 function normalizeFlashAnswer_(v){const s=normalizeText(v);if(s==='〇'||s==='○')return '○';if(s==='✕'||s==='×'||s.toLowerCase()==='x')return '×';return s;}
-function normalizeStudyDate_(v,fallback){if(v instanceof Date&&!isNaN(v))return formatJstDate_(v);const s=normalizeText(v);if(/^\d{4}-\d{2}-\d{2}$/.test(s))return s;const d=s?new Date(s):new Date(fallback);return isNaN(d)?'':formatJstDate_(d);}
+function normalizeStudyDate_(v,fallback){if(v instanceof Date&&!isNaN(v))return formatJstDate_(v);const s=normalizeText(v);if(/^\\d{4}-\\d{2}-\\d{2}$/.test(s))return s;const d=s?new Date(s):new Date(fallback);return isNaN(d)?'':formatJstDate_(d);}
 
 function getFlashSheet_(){const sh=ss_().getSheetByName(FLASH_SHEET_NAME);if(!sh)throw new Error('Flash シートが見つかりません。');return sh;}
 function getFlashHistorySheet_(){const ss=ss_();let sh=ss.getSheetByName(FLASH_HISTORY_SHEET_NAME);if(!sh)sh=ss.insertSheet(FLASH_HISTORY_SHEET_NAME);if(sh.getLastRow()===0)sh.getRange(1,1,1,8).setValues([['日時','問','科目','回答','正答','正誤','EventID','学習日(JST)']]);return sh;}
@@ -68,30 +70,65 @@ function saveFlashResult(cardNo,subject,userAnswer,correctAnswer,isCorrect,event
     incrementStat_(qStats_(),no,ok);
     incrementStat_(sStats_(),sub||'未分類',ok);
     incrementStat_(dStats_(),day,ok);
+    updateStatsBackup_(sub||'未分類',day,ok);
     return{success:true,duplicate:false};
   }finally{lock.releaseLock();}
 }
 function flashEventIdExists_(sh,eid){if(!eid||sh.getLastRow()<2)return false;return Boolean(sh.getRange(2,7,sh.getLastRow()-1,1).createTextFinder(eid).matchEntireCell(true).findNext());}
 function incrementStat_(sh,key,ok){const lr=sh.getLastRow();if(lr>=2){const vals=sh.getRange(2,1,lr-1,1).getDisplayValues();for(let i=0;i<vals.length;i++){if(normalizeText(vals[i][0])===key){const row=i+2;sh.getRange(row,2).setValue(Number(sh.getRange(row,2).getValue()||0)+1);if(ok)sh.getRange(row,3).setValue(Number(sh.getRange(row,3).getValue()||0)+1);return;}}}sh.appendRow([key,1,ok?1:0]);}
 
-function ensureStatsBuilt_(){const q=qStats_(),s=sStats_(),d=dStats_();if(q.getLastRow()>1||s.getLastRow()>1||d.getLastRow()>1)return;const hist=getFlashHistorySheet_();if(hist.getLastRow()>1)rebuildFlashStats();}
+function statSheetTotal_(sh){if(sh.getLastRow()<2)return 0;return sh.getRange(2,2,sh.getLastRow()-1,1).getValues().reduce((n,r)=>n+Number(r[0]||0),0);}
+function ensureStatsBuilt_(){
+  const q=qStats_(),s=sStats_(),d=dStats_(),hist=getFlashHistorySheet_();
+  const historyCount=Math.max(hist.getLastRow()-1,0),questionCount=statSheetTotal_(q);
+  if(historyCount>0&&questionCount!==historyCount){rebuildFlashStats();return;}
+  if(historyCount===0&&questionCount===0)restoreStatsSummaryFromBackup_();
+}
 function readStatMap_(sh){const out={};if(sh.getLastRow()<2)return out;sh.getRange(2,1,sh.getLastRow()-1,3).getValues().forEach(r=>{const k=normalizeText(r[0]);if(k)out[k]={total:Number(r[1]||0),correct:Number(r[2]||0)};});return out;}
 
 function rebuildFlashStats(){
   const q=qStats_(),s=sStats_(),d=dStats_();[q,s,d].forEach(sh=>{if(sh.getLastRow()>1)sh.getRange(2,1,sh.getLastRow()-1,sh.getLastColumn()).clearContent();});
   const qm={},sm={},dm={},hist=getFlashHistorySheet_(),lr=hist.getLastRow();
   if(lr>=2)hist.getRange(2,1,lr-1,8).getValues().forEach(r=>{const no=normalizeText(r[1]);if(!no)return;const sub=normalizeText(r[2])||'未分類',ok=r[5]===true||String(r[5]).toLowerCase()==='true',day=normalizeStudyDate_(r[7],r[0]);incMap_(qm,no,ok);incMap_(sm,sub,ok);if(day)incMap_(dm,day,ok);});
-  writeMap_(q,qm);writeMap_(s,sm);writeMap_(d,dm);
-  return{success:true,questions:Object.keys(qm).length,subjects:Object.keys(sm).length,days:Object.keys(dm).length};
+  writeMap_(q,qm);writeMap_(s,sm);writeMap_(d,dm);saveStatsSummaryBackup_(qm,sm,dm);
+  return{success:true,questions:Object.keys(qm).length,subjects:Object.keys(sm).length,days:Object.keys(dm).length,answers:Math.max(lr-1,0)};
 }
+function repairFlashStats(){ensureStatsBuilt_();return{success:true,bundle:getFlashStatsBundle()};}
 function incMap_(m,k,ok){if(!m[k])m[k]={total:0,correct:0};m[k].total++;if(ok)m[k].correct++;}
 function writeMap_(sh,m){const rows=Object.keys(m).sort().map(k=>[k,m[k].total,m[k].correct]);if(rows.length)sh.getRange(2,1,rows.length,3).setValues(rows);}
+
+function readStatsBackup_(){
+  try{const raw=PropertiesService.getScriptProperties().getProperty(FLASH_STATS_BACKUP_KEY);return raw?JSON.parse(raw):null;}catch(e){return null;}
+}
+function updateStatsBackup_(sub,day,ok){
+  const b=readStatsBackup_()||{total:0,correct:0,subjects:{},days:{},savedAt:''};
+  b.total=Number(b.total||0)+1;if(ok)b.correct=Number(b.correct||0)+1;
+  if(!b.subjects)b.subjects={};if(!b.subjects[sub])b.subjects[sub]={total:0,correct:0};b.subjects[sub].total++;if(ok)b.subjects[sub].correct++;
+  if(!b.days)b.days={};if(!b.days[day])b.days[day]={total:0,correct:0};b.days[day].total++;if(ok)b.days[day].correct++;
+  const keys=Object.keys(b.days).sort();while(keys.length>60){delete b.days[keys.shift()];}
+  b.savedAt=new Date().toISOString();PropertiesService.getScriptProperties().setProperty(FLASH_STATS_BACKUP_KEY,JSON.stringify(b));
+}
+function saveStatsSummaryBackup_(qm,sm,dm){
+  let total=0,correct=0;Object.keys(qm).forEach(k=>{total+=Number(qm[k].total||0);correct+=Number(qm[k].correct||0);});
+  const days={};Object.keys(dm).sort().slice(-60).forEach(k=>days[k]={total:Number(dm[k].total||0),correct:Number(dm[k].correct||0)});
+  const subjects={};Object.keys(sm).forEach(k=>subjects[k]={total:Number(sm[k].total||0),correct:Number(sm[k].correct||0)});
+  const b={total,correct,subjects,days,savedAt:new Date().toISOString()};
+  PropertiesService.getScriptProperties().setProperty(FLASH_STATS_BACKUP_KEY,JSON.stringify(b));
+}
+function restoreStatsSummaryFromBackup_(){
+  const b=readStatsBackup_();if(!b||!Number(b.total||0))return false;
+  const s=sStats_(),d=dStats_();
+  if(s.getLastRow()>1)s.getRange(2,1,s.getLastRow()-1,s.getLastColumn()).clearContent();
+  if(d.getLastRow()>1)d.getRange(2,1,d.getLastRow()-1,d.getLastColumn()).clearContent();
+  writeMap_(s,b.subjects||{});writeMap_(d,b.days||{});return true;
+}
 
 function getFlashStatsBundle(){
   ensureStatsBuilt_();
   const questions=readStatMap_(qStats_()),subjects=readStatMap_(sStats_()),dayMap=readStatMap_(dStats_());
   let total=0,correct=0;Object.keys(questions).forEach(k=>{total+=questions[k].total;correct+=questions[k].correct;});
-  const today=formatJstDate_(new Date()),td=dayMap[today]||{total:0,correct:0};
+  if(total===0){const b=readStatsBackup_();if(b){total=Number(b.total||0);correct=Number(b.correct||0);}}
+  const today=formatJstDate_(new Date()),td=dayMap[today]||(readStatsBackup_()&&readStatsBackup_().days&&readStatsBackup_().days[today])||{total:0,correct:0};
   const days=Object.keys(dayMap).sort().slice(-30).map(date=>({date,total:dayMap[date].total,correct:dayMap[date].correct,accuracy:dayMap[date].total?dayMap[date].correct/dayMap[date].total:0}));
   return{stats:{total,correct,accuracy:total?correct/total:0},daily:{date:today,goal:FLASH_DAILY_GOAL,count:td.total,correct:td.correct,accuracy:td.total?td.correct/td.total:0,remaining:Math.max(FLASH_DAILY_GOAL-td.total,0),achieved:td.total>=FLASH_DAILY_GOAL},questions,subjects,days};
 }
