@@ -5,6 +5,13 @@ window.FLASH_CARDS_CONFIG = {
 window.addEventListener('load', () => {
   if (typeof window.refreshStats !== 'function') return;
 
+  const startBtn = document.getElementById('startBtn');
+  const performanceTitle = document.querySelector('.performance-title');
+  const performancePanel = performanceTitle ? performanceTitle.closest('.panel') : null;
+  if (startBtn && performancePanel) {
+    startBtn.insertAdjacentElement('afterend', performancePanel);
+  }
+
   function rankingTablePatched(keys, dayMap, today) {
     const top = keys.slice(0, 10);
     return '<div class="stats-table-wrap"><table class="stats-table"><thead><tr><th>順位</th><th>日付</th><th>回答</th><th>正答率</th></tr></thead><tbody>' +
