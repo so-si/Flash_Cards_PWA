@@ -129,7 +129,7 @@ function getFlashStatsBundle(){
   let total=0,correct=0;Object.keys(questions).forEach(k=>{total+=questions[k].total;correct+=questions[k].correct;});
   if(total===0){const b=readStatsBackup_();if(b){total=Number(b.total||0);correct=Number(b.correct||0);}}
   const today=formatJstDate_(new Date()),td=dayMap[today]||(readStatsBackup_()&&readStatsBackup_().days&&readStatsBackup_().days[today])||{total:0,correct:0};
-  const days=Object.keys(dayMap).sort().slice(-30).map(date=>({date,total:dayMap[date].total,correct:dayMap[date].correct,accuracy:dayMap[date].total?dayMap[date].correct/dayMap[date].total:0}));
+  const days=Object.keys(dayMap).sort().map(date=>({date,total:dayMap[date].total,correct:dayMap[date].correct,accuracy:dayMap[date].total?dayMap[date].correct/dayMap[date].total:0}));
   return{stats:{total,correct,accuracy:total?correct/total:0},daily:{date:today,goal:FLASH_DAILY_GOAL,count:td.total,correct:td.correct,accuracy:td.total?td.correct/td.total:0,remaining:Math.max(FLASH_DAILY_GOAL-td.total,0),achieved:td.total>=FLASH_DAILY_GOAL},questions,subjects,days};
 }
 function getFlashStats(){return getFlashStatsBundle().stats;}
