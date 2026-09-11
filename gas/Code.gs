@@ -85,6 +85,7 @@ function ensureStatsBuilt_(){
   if(historyCount===0&&questionCount===0)restoreStatsSummaryFromBackup_();
 }
 function readStatMap_(sh){const out={};if(sh.getLastRow()<2)return out;sh.getRange(2,1,sh.getLastRow()-1,3).getValues().forEach(r=>{const k=normalizeText(r[0]);if(k)out[k]={total:Number(r[1]||0),correct:Number(r[2]||0)};});return out;}
+function readDailyStatMap_(){const sh=dStats_(),out={};if(sh.getLastRow()<2)return out;sh.getRange(2,1,sh.getLastRow()-1,3).getValues().forEach(r=>{const k=normalizeStudyDate_(r[0],r[0]);if(k)out[k]={total:Number(r[1]||0),correct:Number(r[2]||0)};});return out;}
 
 function rebuildFlashStats(){
   const q=qStats_(),s=sStats_(),d=dStats_();[q,s,d].forEach(sh=>{if(sh.getLastRow()>1)sh.getRange(2,1,sh.getLastRow()-1,sh.getLastColumn()).clearContent();});
@@ -125,7 +126,7 @@ function restoreStatsSummaryFromBackup_(){
 
 function getFlashStatsBundle(){
   ensureStatsBuilt_();
-  const questions=readStatMap_(qStats_()),subjects=readStatMap_(sStats_()),dayMap=readStatMap_(dStats_());
+  const questions=readStatMap_(qStats_()),subjects=readStatMap_(sStats_()),dayMap=readDailyStatMap_();
   let total=0,correct=0;Object.keys(questions).forEach(k=>{total+=questions[k].total;correct+=questions[k].correct;});
   if(total===0){const b=readStatsBackup_();if(b){total=Number(b.total||0);correct=Number(b.correct||0);}}
   const today=formatJstDate_(new Date()),td=dayMap[today]||(readStatsBackup_()&&readStatsBackup_().days&&readStatsBackup_().days[today])||{total:0,correct:0};
