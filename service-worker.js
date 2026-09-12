@@ -1,4 +1,4 @@
-const CACHE_NAME = 'flash-cards-pwa-v15';
+const CACHE_NAME = 'flash-cards-pwa-v16';
 const APP_SHELL = ['./', './index.html', './config.js', './manifest.json'];
 
 self.addEventListener('install', event => {
@@ -18,26 +18,36 @@ self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
   if (url.origin !== self.location.origin) return;
 
-  const isAppShell = event.request.mode === 'navigate' ||
+  const isAppShell =
+    event.request.mode === 'navigate' ||
     url.pathname.endsWith('/index.html') ||
     url.pathname.endsWith('/config.js') ||
     url.pathname.endsWith('/manifest.json') ||
     url.pathname.endsWith('/');
 
   if (isAppShell) {
-    event.respondWith(fetch(event.request)
-      .then(response => {
+    event.respondWith(
+      fetch(event.request)
+        .then(response => {
+          const copy = response.clone();
+          caches.open(CACHE_NAME).then(cache => cache.put(event.request, copy));
+          return response;
+        })
+        .catch(() =>
+          caches.match(event.request).then(cached => cached || caches.match('./index.html'))
+        )
+    );
+    return;
+  }
+
+  event.respondWith(
+    caches.match(event.request).then(cached =>
+      cached ||
+      fetch(event.request).then(response => {
         const copy = response.clone();
         caches.open(CACHE_NAME).then(cache => cache.put(event.request, copy));
         return response;
       })
-      .catch(() => caches.match(event.request).then(cached => cached || caches.match('./index.html'))));
-    return;
-  }
-
-  event.respondWith(caches.match(event.request).then(cached => cached || fetch(event.request).then(response => {
-    const copy = response.clone();
-    caches.open(CACHE_NAME).then(cache => cache.put(event.request, copy));
-    return response;
-  })));
+    )
+  );
 });
