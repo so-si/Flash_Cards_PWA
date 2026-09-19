@@ -13,7 +13,7 @@
 <body>
 <div class="wrap">
 <section id="homeView">
-<div class="title">短答 Flash Cards <span style="font-size:11px;color:#666;font-weight:600;vertical-align:middle">v19.1</span></div>
+<div class="title">短答 Flash Cards <span style="font-size:11px;color:#666;font-weight:600;vertical-align:middle">v19.2</span></div>
 <div id="offlineStatus" class="status" style="margin:0 0 8px"></div><div id="message" class="message" style="margin:0 0 12px"></div>
 <div class="panel"><div class="muted">今日の目標</div><div id="dailyText" class="goal-big">今日 0 / 50問</div><div id="dailyDone" class="goal-done"></div></div>
 <button class="btn primary" id="startBtn" style="width:100%;font-size:21px;padding:17px;margin:0 0 16px">学習開始</button>
@@ -26,7 +26,7 @@
 <details class="performance-details"><summary>日別ランキング</summary><div id="dailyRankings"></div></details>
 </div>
 <div class="panel"><div style="font-size:20px;font-weight:800">論点</div><div id="topics" class="topics"></div><div id="topicCount" class="filter-count"></div><div class="row" style="margin-top:12px"><button class="btn small" id="allTopicsBtn">全選択</button><button class="btn small" id="clearTopicsBtn">全解除</button></div></div>
-<div class="panel"><div style="font-size:20px;font-weight:800">レジュメ</div><div class="muted" style="margin-top:6px">初回のみ、保存した「STUDYing_7法_レジュメbundle.json」を下のボタンから選択してください。</div><div style="margin-top:12px"><label class="btn" for="referenceFileInput" style="display:inline-block;cursor:pointer">7法レジュメファイルを選択</label><input id="referenceFileInput" type="file" accept=".json,application/json" style="position:absolute;left:-9999px;width:1px;height:1px"></div><div id="referenceStatus" class="status"></div></div><div class="row" style="margin-top:4px"><button class="btn" id="updateCardsBtn" style="flex:1">カードの更新</button><button class="btn small" id="tokenBtn">接続キーの設定変更</button></div>
+<div class="panel"><div style="font-size:20px;font-weight:800">レジュメ</div><div class="muted" style="margin-top:6px">初回のみ、保存した「STUDYing_7法_レジュメbundle.json」を選択してください。iPhoneでは「ファイルを選択」→「ブラウズ」から選びます。</div><div style="margin-top:12px"><input id="referenceFileInput" type="file" style="display:block;width:100%;padding:12px;border:1px solid #666;border-radius:12px;background:#111;color:#fff"></div><div id="referenceStatus" class="status"></div></div><div class="row" style="margin-top:4px"><button class="btn" id="updateCardsBtn" style="flex:1">カードの更新</button><button class="btn small" id="tokenBtn">接続キーの設定変更</button></div>
 </section>
 <section id="cardView" class="hidden">
 <div class="top-actions"><button class="btn small" id="backBtn">← 戻る</button><div id="progress" class="muted"></div></div>
@@ -173,31 +173,8 @@ async function saveReferenceBundle(bundle){const db=await openReferenceDb();retu
 async function loadReferenceBundle(){const db=await openReferenceDb();return new Promise((resolve,reject)=>{const tx=db.transaction(REFERENCE_STORE,'readonly'),r=tx.objectStore(REFERENCE_STORE).get(REFERENCE_KEY);r.onsuccess=()=>{db.close();resolve(r.result||null)};r.onerror=()=>{db.close();reject(r.error)}})}
 async function updateReferenceStatus(){const el=$('referenceStatus');if(!el)return;try{const b=await loadReferenceBundle(),n=b&&b.units?Object.values(b.units).reduce((a,v)=>a+Object.keys(v||{}).length,0):0;el.textContent=n?'レジュメ保存：'+n+'分野 / オフライン利用可':'レジュメ保存：未保存'}catch(e){el.textContent='レジュメ保存状態を確認できませんでした。'}}
 function readFileText(file){return new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(String(r.result||''));r.onerror=()=>reject(r.error||new Error('ファイルを読み込めませんでした。'));r.readAsText(file,'UTF-8')})}
-async function importReferenceFile(file){
-  if(!file)return;
-  const status=$('referenceStatus');
-  try{
-    status.textContent='レジュメファイルを読み込んでいます…';
-    setMessage('');
-    const text=await readFileText(file);
-    const bundle=JSON.parse(text);
-    const n=bundle&&bundle.units?Object.values(bundle.units).reduce((a,v)=>a+Object.keys(v||{}).length,0):0;
-    if(bundle.schema_version!==2||n!==132)throw new Error('選択したファイルは7法132分野のレジュメデータではありません。');
-    status.textContent='端末に保存しています…';
-    await saveReferenceBundle(bundle);
-    const saved=await loadReferenceBundle();
-    const savedN=saved&&saved.units?Object.values(saved.units).reduce((a,v)=>a+Object.keys(v||{}).length,0):0;
-    if(savedN!==132)throw new Error('端末保存の確認に失敗しました。');
-    await updateReferenceStatus();
-    setMessage('132分野のレジュメを保存しました。');
-  }catch(e){
-    const msg=e&&e.message?e.message:String(e);
-    status.textContent='保存できませんでした：'+msg;
-    setMessage('レジュメ保存に失敗しました。');
-  }finally{
-    $('referenceFileInput').value='';
-  }
-}
+function readReferenceFileText(file){return new Promise((resolve,reject)=>{try{if(file&&typeof file.text==='function'){file.text().then(resolve,reject);return}const r=new FileReader();r.onload=()=>resolve(String(r.result||''));r.onerror=()=>reject(r.error||new Error('ファイルを読み込めませんでした。'));r.readAsText(file,'UTF-8')}catch(e){reject(e)}})}
+async function importReferenceFile(file){if(!file)return;const status=$('referenceStatus');try{status.textContent='ファイルを読み込んでいます…';setMessage('レジュメを端末に保存しています…');const text=await readReferenceFileText(file);if(!text||text.length<1000)throw new Error('選択したファイルの内容を読み込めませんでした。');status.textContent='データを確認しています…';const bundle=JSON.parse(text),n=bundle&&bundle.units?Object.values(bundle.units).reduce((a,v)=>a+Object.keys(v||{}).length,0):0;if(bundle.schema_version!==2||n!==132)throw new Error('レジュメデータの形式が正しくありません（'+n+'分野）。');status.textContent='端末に保存しています…';await saveReferenceBundle(bundle);const saved=await loadReferenceBundle(),savedN=saved&&saved.units?Object.values(saved.units).reduce((a,v)=>a+Object.keys(v||{}).length,0):0;if(savedN!==132)throw new Error('端末保存の確認に失敗しました（'+savedN+'分野）。');if(navigator.storage&&navigator.storage.persist){try{await navigator.storage.persist()}catch(_){}}await updateReferenceStatus();setMessage('132分野のレジュメを端末に保存しました。')}catch(e){const msg=e&&e.message?e.message:String(e);status.textContent='保存失敗：'+msg;setMessage('レジュメ保存に失敗しました：'+msg)}finally{$('referenceFileInput').value=''}}
 function hasReferenceForCard(c){const s=canonicalSubject(c&&c.subject||''),t=cardTopic(c);return !!t&&!REFERENCE_UNAVAILABLE.has(s+'::'+t)}
 async function openCurrentReference(){const c=studyCards[currentIndex];if(!c)return;try{const bundle=await loadReferenceBundle();if(!bundle||!bundle.units)throw new Error('レジュメが端末に保存されていません。ホーム画面の「7法レジュメをオフライン保存」からデータファイルを選択してください。');const s=canonicalSubject(c.subject||''),t=cardTopic(c),page=(bundle.units[s]||{})[t];if(!page)throw new Error('この分野のレジュメ本文はありません。');$('referenceTitle').textContent=s+' ＞ '+t;$('referenceFrame').srcdoc=page;$('cardView').classList.add('hidden');$('referenceView').classList.remove('hidden')}catch(e){alert(e.message||String(e))}}
 function backFromReference(){$('referenceFrame').srcdoc='';$('referenceView').classList.add('hidden');$('cardView').classList.remove('hidden')}
