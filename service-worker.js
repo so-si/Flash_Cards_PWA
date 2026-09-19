@@ -1,5 +1,5 @@
-const CACHE_NAME = 'flash-cards-pwa-v18-pilot3';
-const APP_SHELL = ['./', './index.html', './config.js', './manifest.json', './reference/gyosei/137_行政手続法.html'];
+const CACHE_NAME = 'flash-cards-pwa-v193';
+const APP_SHELL = ['./', './index.html', './config.js', './manifest.json'];
 
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(APP_SHELL)));
