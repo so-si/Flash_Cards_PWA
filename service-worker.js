@@ -1,4 +1,4 @@
-const CACHE_NAME = 'flash-cards-pwa-v18-pilot2';
+const CACHE_NAME = 'flash-cards-pwa-v18-pilot3';
 const APP_SHELL = ['./', './index.html', './config.js', './manifest.json', './reference/gyosei/137_行政手続法.html'];
 
 self.addEventListener('install', event => {
