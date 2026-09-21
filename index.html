@@ -13,7 +13,7 @@
 <body>
 <div class="wrap">
 <section id="homeView">
-<div class="title">短答 Flash Cards <span style="font-size:11px;color:#666;font-weight:600;vertical-align:middle">v20</span></div>
+<div class="title">短答 Flash Cards <span style="font-size:11px;color:#666;font-weight:600;vertical-align:middle">v20.1</span></div>
 <div id="offlineStatus" class="status" style="margin:0 0 8px"></div><div id="message" class="message" style="margin:0 0 12px"></div>
 <div class="panel"><div class="muted">今日の目標</div><div id="dailyText" class="goal-big">今日 0 / 50問</div><div id="dailyDone" class="goal-done"></div></div>
 <button class="btn primary" id="startBtn" style="width:100%;font-size:21px;padding:17px;margin:0 0 16px">学習開始</button>
@@ -162,8 +162,7 @@ function escapeHtml(v){return String(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':
 function formatDayLabel(v){
   const key=normalizeDayKey(v),p=String(key).split('-');if(p.length!==3)return String(v);
   const y=Number(p[0]),m=Number(p[1]),d=Number(p[2]);
-  const dt=new Date(`${p[0]}-${p[1]}-${p[2]}T00:00:00+09:00`);
-  const wd=['日','月','火','水','木','金','土'][dt.getDay()];
+  const wd=['日','月','火','水','木','金','土'][new Date(Date.UTC(y,m-1,d)).getUTCDay()];
   return `${String(y).slice(-2)}年${m}月${d}日（${wd}）`;
 }
 function updateStatsDisplay(){const s=displayStats(),rate=s.total?((s.correct/s.total)*100).toFixed(1):'0.0';$('statsText').textContent=navigator.onLine?`回答 ${s.total}問 / 正解 ${s.correct}問 / 正答率 ${rate}%`:'';$('dailyText').textContent=`今日 ${s.todayCount} / ${DAILY_GOAL}問`;$('dailyDone').textContent=s.todayCount>=DAILY_GOAL?'本日の目標達成':'あと '+Math.max(DAILY_GOAL-s.todayCount,0)+'問';const p=pendingEvents();$('pendingText').textContent=p.length?`未同期の回答：${p.length}件`:'回答履歴は同期済みです。';renderPerformanceStats()}
