@@ -102,11 +102,6 @@ window.addEventListener('load', () => {
 
     try {
       const today = jstDate();
-      const previousTodayCount =
-        remoteStats && remoteStats.today === today
-          ? Number(remoteStats.todayCount || 0)
-          : 0;
-
       const r = await apiRequest('getFlashStatsBundle');
       const b = r.bundle || {};
       const stats = b.stats || {};
@@ -117,10 +112,7 @@ window.addEventListener('load', () => {
       remoteStats = {
         total: Number(stats.total || 0),
         correct: Number(stats.correct || 0),
-        todayCount:
-          serverDate === today
-            ? Math.max(previousTodayCount, serverTodayCount)
-            : serverTodayCount,
+        todayCount: serverTodayCount,
         today: serverDate
       };
 
