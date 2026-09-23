@@ -2,6 +2,69 @@ window.FLASH_CARDS_CONFIG = {
   apiUrl: 'https://script.google.com/macros/s/AKfycbx-CSqlklOuwsEPyX4-89il2w-GFmZMqOB5wMszAOugUq2R3Q3EePivGNxQSjbPJWtX/exec'
 };
 
+// Install the sync patch before index.html's DOMContentLoaded init runs.
+document.addEventListener('DOMContentLoaded', () => {
+  const version = document.querySelector('.title span');
+  if (version) version.textContent = 'v20.2';
+
+  if (typeof window.syncPending !== 'function') return;
+
+  window.syncPending = async function syncPendingPatched() {
+    if (!navigator.onLine || !token()) return;
+    if (syncPromise) return syncPromise;
+
+    syncPromise = (async () => {
+      const snapshot = [...pendingEvents()];
+      let lastError = '';
+
+      for (const ev of snapshot) {
+        if (!navigator.onLine) break;
+
+        try {
+          const result = await apiRequest('saveFlashResult', ev);
+
+          // Remove each successful item immediately so the pending count
+          // visibly decreases while a large offline queue is syncing.
+          const current = pendingEvents();
+          const next = current.filter(x => x.eventId !== ev.eventId);
+
+          // If the server says it was already saved, do not increment the
+          // local aggregate again. refreshStats() below will reconcile it.
+          if (!(result && result.duplicate)) {
+            promoteSyncedEvent(ev);
+          }
+          setPending(next);
+        } catch (e) {
+          lastError = e && e.message ? e.message : String(e);
+          // A persistent API/token/network error would otherwise repeat for
+          // every queued answer. Stop here and keep the remaining events.
+          break;
+        }
+      }
+
+      if (lastError) {
+        const n = pendingEvents().length;
+        setMessage(`未同期 ${n}件：${lastError}`);
+      }
+    })();
+
+    try {
+      await syncPromise;
+    } finally {
+      syncPromise = null;
+    }
+
+    if (navigator.onLine && token()) {
+      await refreshStats();
+    }
+
+    const remaining = pendingEvents().length;
+    if (!remaining) {
+      setMessage('回答履歴を同期しました。');
+    }
+  };
+});
+
 window.addEventListener('load', () => {
   if (typeof window.refreshStats !== 'function') return;
 
