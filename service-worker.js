@@ -1,5 +1,5 @@
-const CACHE_NAME = 'flash-cards-pwa-v20-1';
-const APP_SHELL = ['./', './index.html', './config.js', './manifest.json'];
+const CACHE_NAME = 'flash-cards-pwa-v20-3';
+const APP_SHELL = ['./', './index.html', './config.js', './manifest.json', './version.json'];
 
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(APP_SHELL)));
@@ -13,10 +13,20 @@ self.addEventListener('activate', event => {
   self.clients.claim();
 });
 
+self.addEventListener('message', event => {
+  if (event.data && event.data.type === 'SKIP_WAITING') self.skipWaiting();
+});
+
 self.addEventListener('fetch', event => {
   if (event.request.method !== 'GET') return;
   const url = new URL(event.request.url);
   if (url.origin !== self.location.origin) return;
+
+  const isVersion = url.pathname.endsWith('/version.json');
+  if (isVersion) {
+    event.respondWith(fetch(event.request, {cache:'no-store'}).catch(() => caches.match('./version.json')));
+    return;
+  }
 
   const isAppShell =
     event.request.mode === 'navigate' ||
@@ -27,7 +37,7 @@ self.addEventListener('fetch', event => {
 
   if (isAppShell) {
     event.respondWith(
-      fetch(event.request)
+      fetch(event.request, {cache:'no-store'})
         .then(response => {
           const copy = response.clone();
           caches.open(CACHE_NAME).then(cache => cache.put(event.request, copy));
@@ -42,8 +52,7 @@ self.addEventListener('fetch', event => {
 
   event.respondWith(
     caches.match(event.request).then(cached =>
-      cached ||
-      fetch(event.request).then(response => {
+      cached || fetch(event.request).then(response => {
         const copy = response.clone();
         caches.open(CACHE_NAME).then(cache => cache.put(event.request, copy));
         return response;
