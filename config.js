@@ -2,67 +2,161 @@ window.FLASH_CARDS_CONFIG = {
   apiUrl: 'https://script.google.com/macros/s/AKfycbx-CSqlklOuwsEPyX4-89il2w-GFmZMqOB5wMszAOugUq2R3Q3EePivGNxQSjbPJWtX/exec'
 };
 
+const FLASH_APP_VERSION = '20.3';
+
+function installAppUpdateUi_() {
+  const title = document.querySelector('.title span');
+  if (title) title.textContent = 'v' + FLASH_APP_VERSION;
+
+  const updateCardsBtn = document.getElementById('updateCardsBtn');
+  const row = updateCardsBtn ? updateCardsBtn.closest('.row') : null;
+  if (row && !document.getElementById('appUpdateBtn')) {
+    const btn = document.createElement('button');
+    btn.className = 'btn small';
+    btn.id = 'appUpdateBtn';
+    btn.textContent = '最新版を確認';
+    btn.onclick = () => checkForAppUpdate_(true);
+    row.appendChild(btn);
+  }
+
+  const topics = document.getElementById('topics');
+  const topicPanel = topics ? topics.closest('.panel') : null;
+  if (topicPanel && !document.getElementById('startBtnTopics')) {
+    const btn = document.createElement('button');
+    btn.className = 'btn primary';
+    btn.id = 'startBtnTopics';
+    btn.style.cssText = 'width:100%;font-size:21px;padding:17px;margin:-2px 0 16px';
+    btn.textContent = '学習開始';
+    btn.onclick = () => startStudy();
+    topicPanel.insertAdjacentElement('afterend', btn);
+  }
+}
+
+async function checkForAppUpdate_(manual) {
+  const btn = document.getElementById('appUpdateBtn');
+  try {
+    if (btn && manual) btn.textContent = '確認中…';
+    const r = await fetch('./version.json?t=' + Date.now(), {cache:'no-store'});
+    if (!r.ok) throw new Error('version check failed');
+    const v = await r.json();
+    const latest = String(v.version || '').trim();
+    if (latest && latest !== FLASH_APP_VERSION) {
+      if (btn) {
+        btn.textContent = 'v' + latest + 'へ更新';
+        btn.onclick = () => applyAppUpdate_(latest);
+      }
+      if (manual && typeof setMessage === 'function') setMessage('最新版 v' + latest + ' があります。');
+    } else {
+      if (btn) {
+        btn.textContent = '最新版です';
+        setTimeout(() => { if (btn) btn.textContent = '最新版を確認'; }, 1800);
+      }
+      if (manual && typeof setMessage === 'function') setMessage('現在のアプリは最新版です。');
+    }
+  } catch (e) {
+    if (btn) btn.textContent = '最新版を確認';
+    if (manual && typeof setMessage === 'function') setMessage('更新確認に失敗しました。通信状態を確認してください。');
+  }
+}
+
+let flashReloading_ = false;
+async function applyAppUpdate_(latest) {
+  const btn = document.getElementById('appUpdateBtn');
+  try {
+    if (btn) btn.textContent = '更新中…';
+    if (!('serviceWorker' in navigator)) {
+      location.replace('./?v=' + encodeURIComponent(latest) + '&t=' + Date.now());
+      return;
+    }
+    const reg = await navigator.serviceWorker.register('./service-worker.js', {updateViaCache:'none'});
+    await reg.update();
+    if (reg.waiting) reg.waiting.postMessage({type:'SKIP_WAITING'});
+    await new Promise(resolve => setTimeout(resolve, 600));
+    flashReloading_ = true;
+    location.replace('./?v=' + encodeURIComponent(latest) + '&t=' + Date.now());
+  } catch (e) {
+    if (btn) btn.textContent = '更新を再試行';
+    if (typeof setMessage === 'function') setMessage('アプリ更新に失敗しました。もう一度押してください。');
+  }
+}
+
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!flashReloading_) {
+      flashReloading_ = true;
+      location.reload();
+    }
+  });
+}
+
 // Install the sync patch before index.html's DOMContentLoaded init runs.
 document.addEventListener('DOMContentLoaded', () => {
-  const version = document.querySelector('.title span');
-  if (version) version.textContent = 'v20.2';
+  installAppUpdateUi_();
 
-  if (typeof window.syncPending !== 'function') return;
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('./service-worker.js', {updateViaCache:'none'})
+      .then(reg => reg.update())
+      .catch(() => {});
+  }
 
-  window.syncPending = async function syncPendingPatched() {
-    if (!navigator.onLine || !token()) return;
-    if (syncPromise) return syncPromise;
+  if (typeof window.syncPending === 'function') {
+    window.syncPending = async function syncPendingPatched() {
+      if (!navigator.onLine || !token()) return;
+      if (syncPromise) return syncPromise;
 
-    syncPromise = (async () => {
-      const snapshot = [...pendingEvents()];
-      let lastError = '';
+      syncPromise = (async () => {
+        const CONCURRENCY = 6;
+        let lastError = '';
 
-      for (const ev of snapshot) {
-        if (!navigator.onLine) break;
+        while (navigator.onLine && pendingEvents().length) {
+          const batch = pendingEvents().slice(0, CONCURRENCY);
+          const results = await Promise.all(batch.map(async ev => {
+            try {
+              const result = await apiRequest('saveFlashResult', ev);
+              return {ok:true, ev, result};
+            } catch (e) {
+              return {ok:false, ev, error:e && e.message ? e.message : String(e)};
+            }
+          }));
 
-        try {
-          const result = await apiRequest('saveFlashResult', ev);
-
-          // Remove each successful item immediately so the pending count
-          // visibly decreases while a large offline queue is syncing.
-          const current = pendingEvents();
-          const next = current.filter(x => x.eventId !== ev.eventId);
-
-          // If the server says it was already saved, do not increment the
-          // local aggregate again. refreshStats() below will reconcile it.
-          if (!(result && result.duplicate)) {
-            promoteSyncedEvent(ev);
+          const successIds = new Set();
+          for (const item of results) {
+            if (!item.ok) {
+              if (!lastError) lastError = item.error;
+              continue;
+            }
+            successIds.add(item.ev.eventId);
+            if (!(item.result && item.result.duplicate)) promoteSyncedEvent(item.ev);
           }
-          setPending(next);
-        } catch (e) {
-          lastError = e && e.message ? e.message : String(e);
-          // A persistent API/token/network error would otherwise repeat for
-          // every queued answer. Stop here and keep the remaining events.
-          break;
+
+          if (successIds.size) {
+            const current = pendingEvents();
+            setPending(current.filter(x => !successIds.has(x.eventId)));
+          }
+
+          if (results.some(x => !x.ok)) break;
         }
+
+        if (lastError) {
+          const n = pendingEvents().length;
+          setMessage(`未同期 ${n}件：${lastError}`);
+        }
+      })();
+
+      try {
+        await syncPromise;
+      } finally {
+        syncPromise = null;
       }
 
-      if (lastError) {
-        const n = pendingEvents().length;
-        setMessage(`未同期 ${n}件：${lastError}`);
-      }
-    })();
+      if (navigator.onLine && token()) await refreshStats();
 
-    try {
-      await syncPromise;
-    } finally {
-      syncPromise = null;
-    }
+      const remaining = pendingEvents().length;
+      if (!remaining) setMessage('回答履歴を同期しました。');
+    };
+  }
 
-    if (navigator.onLine && token()) {
-      await refreshStats();
-    }
-
-    const remaining = pendingEvents().length;
-    if (!remaining) {
-      setMessage('回答履歴を同期しました。');
-    }
-  };
+  setTimeout(() => checkForAppUpdate_(false), 1200);
 });
 
 window.addEventListener('load', () => {
@@ -123,7 +217,7 @@ window.addEventListener('load', () => {
     dailyBox.innerHTML = '<div class="stats-table-wrap daily"><table class="stats-table"><thead><tr><th>日付</th><th>回答</th><th>正解</th><th>正答率</th></tr></thead><tbody>' +
       dayKeys.map(k => {
         const s = dayMap[k];
-        return `<tr><td>${formatDayLabel(k)}</td><td>${s.total}</td><td>${s.correct}</td><td>${pct(s.correct, s.total)}</td></tr>`;
+        return `<tr><td>${formatDayLabel(k)}</td><td>${s.total}</td><td>${s.correct}</td><td>${pct(s.correct,s.total)}</td></tr>`;
       }).join('') +
       '</tbody></table></div>';
 
@@ -162,7 +256,6 @@ window.addEventListener('load', () => {
 
   window.refreshStats = async function refreshStatsPatched() {
     if (!navigator.onLine || !token()) return;
-
     try {
       const today = jstDate();
       const r = await apiRequest('getFlashStatsBundle');
@@ -179,16 +272,9 @@ window.addEventListener('load', () => {
         today: serverDate
       };
 
-      remoteQuestionStats =
-        b.questions && typeof b.questions === 'object'
-          ? b.questions
-          : {};
-
+      remoteQuestionStats = b.questions && typeof b.questions === 'object' ? b.questions : {};
       remoteBreakdown = {
-        subjects:
-          b.subjects && typeof b.subjects === 'object'
-            ? b.subjects
-            : {},
+        subjects: b.subjects && typeof b.subjects === 'object' ? b.subjects : {},
         days: Array.isArray(b.days) ? b.days : []
       };
 
