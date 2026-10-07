@@ -18,6 +18,7 @@ function doGet(e) {
     let response;
     switch (p.action) {
       case 'getFlashCards': response = {success:true,cards:getFlashCards()}; break;
+      case 'setFlashReviewPriority': response = setFlashReviewPriority(payload.cardNo,payload.enabled); break;
       case 'saveFlashResult': response = saveFlashResult(payload.cardNo,payload.subject,payload.userAnswer,payload.correctAnswer,payload.isCorrect,payload.eventId,payload.timestamp); break;
       case 'getFlashStats': response = {success:true,stats:getFlashStats()}; break;
       case 'getFlashDailyStatus': response = {success:true,status:getFlashDailyStatus()}; break;
@@ -57,6 +58,21 @@ function getFlashCards(){
   const i={no:h.indexOf('問'),subject:h.indexOf('科目'),precedent:h.indexOf('判例名'),question:h.indexOf('質問'),answer:h.indexOf('正答'),source:h.indexOf('出典'),explanation:h.indexOf('解説'),detailUrl:h.indexOf('詳細リンク'),reviewPriority:h.indexOf('重点復習')};
   ['no','subject','precedent','question','answer','source'].forEach(k=>{if(i[k]<0)throw new Error('Flash シートの列が不足しています: '+k);});
   return v.slice(1).filter(r=>normalizeText(r[i.question])).map(r=>({no:normalizeText(r[i.no]),subject:normalizeText(r[i.subject]),precedent:normalizeText(r[i.precedent]),question:normalizeText(r[i.question]),answer:normalizeFlashAnswer_(r[i.answer]),source:normalizeText(r[i.source]),explanation:i.explanation>=0?normalizeText(r[i.explanation]):'',detailUrl:i.detailUrl>=0?normalizeText(r[i.detailUrl]):'',reviewPriority:i.reviewPriority>=0?isReviewPriority_(r[i.reviewPriority]):false}));
+}
+
+function setFlashReviewPriority(cardNo,enabled){
+  const no=normalizeText(cardNo);if(!no)throw new Error('問番号が不正です。');
+  const lock=LockService.getScriptLock();lock.waitLock(20000);
+  try{
+    const sh=getFlashSheet_(),lr=sh.getLastRow(),lc=sh.getLastColumn();if(lr<2)throw new Error('Flash シートにカードがありません。');
+    const headers=sh.getRange(1,1,1,lc).getDisplayValues()[0].map(normalizeText),noCol=headers.indexOf('問'),priorityCol=headers.indexOf('重点復習');
+    if(noCol<0)throw new Error('Flash シートに「問」列がありません。');
+    if(priorityCol<0)throw new Error('Flash シートに「重点復習」列がありません。');
+    const values=sh.getRange(2,noCol+1,lr-1,1).getDisplayValues().flat();
+    const idx=values.findIndex(v=>normalizeText(v)===no);if(idx<0)throw new Error('対象の問が見つかりません: '+no);
+    const cell=sh.getRange(idx+2,priorityCol+1);if(enabled===true||String(enabled).toLowerCase()==='true')cell.setValue('○');else cell.clearContent();
+    return{success:true,cardNo:no,reviewPriority:enabled===true||String(enabled).toLowerCase()==='true'};
+  }finally{lock.releaseLock();}
 }
 
 function saveFlashResult(cardNo,subject,userAnswer,correctAnswer,isCorrect,eventId,eventTimestamp){
