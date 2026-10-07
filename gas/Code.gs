@@ -4,7 +4,6 @@ const FLASH_HISTORY_SHEET_NAME = 'FlashHistory';
 const FLASH_Q_STATE = 'FlashQuestionState';
 const FLASH_S_STATS = 'FlashStatsSubject';
 const FLASH_D_STATS = 'FlashStatsDaily';
-const FLASH_STATS_BACKUP_KEY = 'FLASH_STATS_SUMMARY_BACKUP_V1';
 const JST_TIMEZONE = 'Asia/Tokyo';
 const FLASH_DAILY_GOAL = 50;
 
@@ -101,7 +100,6 @@ function saveFlashResult(cardNo,subject,userAnswer,correctAnswer,isCorrect,event
     updateQuestionState_(no,ok,dt);
     incrementStat_(sStats_(),sub||'未分類',ok);
     incrementStat_(dStats_(),day,ok);
-    updateStatsBackup_(sub||'未分類',day,ok);
     return{success:true,duplicate:false};
   }finally{lock.releaseLock();}
 }
@@ -112,8 +110,7 @@ function statSheetTotal_(sh){if(sh.getLastRow()<2)return 0;return sh.getRange(2,
 function ensureStatsBuilt_(){
   const q=qState_(),hist=getFlashHistorySheet_();
   const historyCount=Math.max(hist.getLastRow()-1,0),questionCount=statSheetTotal_(q);
-  if(historyCount>0&&questionCount!==historyCount){rebuildFlashStats();return;}
-  if(historyCount===0&&questionCount===0)restoreStatsSummaryFromBackup_();
+  if(historyCount!==questionCount)rebuildFlashStats();
 }
 function readStatMap_(sh){const out={};if(sh.getLastRow()<2)return out;sh.getRange(2,1,sh.getLastRow()-1,3).getValues().forEach(r=>{const k=normalizeText(r[0]);if(k)out[k]={total:Number(r[1]||0),correct:Number(r[2]||0)};});return out;}
 function readQuestionStateMap_(){
@@ -144,45 +141,18 @@ function rebuildFlashStats(){
   const qRows=Object.keys(qm).sort((a,b)=>Number(a)-Number(b)).map(no=>[no,qm[no].total,qm[no].correct,qm[no].lastAnsweredAt||'',priority[no]||'']);
   Object.keys(priority).filter(no=>!qm[no]).sort((a,b)=>Number(a)-Number(b)).forEach(no=>qRows.push([no,0,0,'',priority[no]]));
   if(qRows.length)q.getRange(2,1,qRows.length,5).setValues(qRows);
-  writeMap_(s,sm);writeMap_(d,dm);saveStatsSummaryBackup_(qm,sm,dm);
+  writeMap_(s,sm);writeMap_(d,dm);
   return{success:true,questions:Object.keys(qm).length,subjects:Object.keys(sm).length,days:Object.keys(dm).length,answers:Math.max(lr-1,0)};
 }
 function repairFlashStats(){ensureStatsBuilt_();return{success:true,bundle:getFlashStatsBundle()};}
 function incMap_(m,k,ok){if(!m[k])m[k]={total:0,correct:0};m[k].total++;if(ok)m[k].correct++;}
 function writeMap_(sh,m){const rows=Object.keys(m).sort().map(k=>[k,m[k].total,m[k].correct]);if(rows.length)sh.getRange(2,1,rows.length,3).setValues(rows);}
 
-function readStatsBackup_(){
-  try{const raw=PropertiesService.getScriptProperties().getProperty(FLASH_STATS_BACKUP_KEY);return raw?JSON.parse(raw):null;}catch(e){return null;}
-}
-function updateStatsBackup_(sub,day,ok){
-  const b=readStatsBackup_()||{total:0,correct:0,subjects:{},days:{},savedAt:''};
-  b.total=Number(b.total||0)+1;if(ok)b.correct=Number(b.correct||0)+1;
-  if(!b.subjects)b.subjects={};if(!b.subjects[sub])b.subjects[sub]={total:0,correct:0};b.subjects[sub].total++;if(ok)b.subjects[sub].correct++;
-  if(!b.days)b.days={};if(!b.days[day])b.days[day]={total:0,correct:0};b.days[day].total++;if(ok)b.days[day].correct++;
-  const keys=Object.keys(b.days).sort();while(keys.length>60){delete b.days[keys.shift()];}
-  b.savedAt=new Date().toISOString();PropertiesService.getScriptProperties().setProperty(FLASH_STATS_BACKUP_KEY,JSON.stringify(b));
-}
-function saveStatsSummaryBackup_(qm,sm,dm){
-  let total=0,correct=0;Object.keys(qm).forEach(k=>{total+=Number(qm[k].total||0);correct+=Number(qm[k].correct||0);});
-  const days={};Object.keys(dm).sort().slice(-60).forEach(k=>days[k]={total:Number(dm[k].total||0),correct:Number(dm[k].correct||0)});
-  const subjects={};Object.keys(sm).forEach(k=>subjects[k]={total:Number(sm[k].total||0),correct:Number(sm[k].correct||0)});
-  const b={total,correct,subjects,days,savedAt:new Date().toISOString()};
-  PropertiesService.getScriptProperties().setProperty(FLASH_STATS_BACKUP_KEY,JSON.stringify(b));
-}
-function restoreStatsSummaryFromBackup_(){
-  const b=readStatsBackup_();if(!b||!Number(b.total||0))return false;
-  const s=sStats_(),d=dStats_();
-  if(s.getLastRow()>1)s.getRange(2,1,s.getLastRow()-1,s.getLastColumn()).clearContent();
-  if(d.getLastRow()>1)d.getRange(2,1,d.getLastRow()-1,d.getLastColumn()).clearContent();
-  writeMap_(s,b.subjects||{});writeMap_(d,b.days||{});return true;
-}
-
 function getFlashStatsBundle(){
   ensureStatsBuilt_();
   const questions=readQuestionStateMap_(),subjects=readStatMap_(sStats_()),dayMap=readDailyStatMap_();
   let total=0,correct=0;Object.keys(questions).forEach(k=>{total+=questions[k].total;correct+=questions[k].correct;});
-  if(total===0){const b=readStatsBackup_();if(b){total=Number(b.total||0);correct=Number(b.correct||0);}}
-  const today=formatJstDate_(new Date()),td=dayMap[today]||(readStatsBackup_()&&readStatsBackup_().days&&readStatsBackup_().days[today])||{total:0,correct:0};
+  const today=formatJstDate_(new Date()),td=dayMap[today]||{total:0,correct:0};
   const days=Object.keys(dayMap).sort().map(date=>({date,total:dayMap[date].total,correct:dayMap[date].correct,accuracy:dayMap[date].total?dayMap[date].correct/dayMap[date].total:0}));
   return{stats:{total,correct,accuracy:total?correct/total:0},daily:{date:today,goal:FLASH_DAILY_GOAL,count:td.total,correct:td.correct,accuracy:td.total?td.correct/td.total:0,remaining:Math.max(FLASH_DAILY_GOAL-td.total,0),achieved:td.total>=FLASH_DAILY_GOAL},questions,subjects,days};
 }
