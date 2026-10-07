@@ -49,12 +49,14 @@ function qStats_(){return getStatsSheet_(FLASH_Q_STATS,['問','回答数','正�
 function sStats_(){return getStatsSheet_(FLASH_S_STATS,['科目','回答数','正解数']);}
 function dStats_(){return getStatsSheet_(FLASH_D_STATS,['日付','回答数','正解数']);}
 
+function isReviewPriority_(value){const s=normalizeText(value).toLowerCase();return value===true||value===1||['1','true','yes','y','○','〇','重点','high'].indexOf(s)>=0;}
+
 function getFlashCards(){
   const sh=getFlashSheet_(),lr=sh.getLastRow(),lc=sh.getLastColumn();if(lr<2)return[];
   const v=sh.getRange(1,1,lr,lc).getDisplayValues(),h=v[0].map(normalizeText);
-  const i={no:h.indexOf('問'),subject:h.indexOf('科目'),precedent:h.indexOf('判例名'),question:h.indexOf('質問'),answer:h.indexOf('正答'),source:h.indexOf('出典'),explanation:h.indexOf('解説'),detailUrl:h.indexOf('詳細リンク')};
+  const i={no:h.indexOf('問'),subject:h.indexOf('科目'),precedent:h.indexOf('判例名'),question:h.indexOf('質問'),answer:h.indexOf('正答'),source:h.indexOf('出典'),explanation:h.indexOf('解説'),detailUrl:h.indexOf('詳細リンク'),reviewPriority:h.indexOf('重点復習')};
   ['no','subject','precedent','question','answer','source'].forEach(k=>{if(i[k]<0)throw new Error('Flash シートの列が不足しています: '+k);});
-  return v.slice(1).filter(r=>normalizeText(r[i.question])).map(r=>({no:normalizeText(r[i.no]),subject:normalizeText(r[i.subject]),precedent:normalizeText(r[i.precedent]),question:normalizeText(r[i.question]),answer:normalizeFlashAnswer_(r[i.answer]),source:normalizeText(r[i.source]),explanation:i.explanation>=0?normalizeText(r[i.explanation]):'',detailUrl:i.detailUrl>=0?normalizeText(r[i.detailUrl]):''}));
+  return v.slice(1).filter(r=>normalizeText(r[i.question])).map(r=>({no:normalizeText(r[i.no]),subject:normalizeText(r[i.subject]),precedent:normalizeText(r[i.precedent]),question:normalizeText(r[i.question]),answer:normalizeFlashAnswer_(r[i.answer]),source:normalizeText(r[i.source]),explanation:i.explanation>=0?normalizeText(r[i.explanation]):'',detailUrl:i.detailUrl>=0?normalizeText(r[i.detailUrl]):'',reviewPriority:i.reviewPriority>=0?isReviewPriority_(r[i.reviewPriority]):false}));
 }
 
 function saveFlashResult(cardNo,subject,userAnswer,correctAnswer,isCorrect,eventId,eventTimestamp){
