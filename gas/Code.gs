@@ -1,7 +1,7 @@
 const SPREADSHEET_ID = '1IYyx3Peb6Jkiq8miyZaTOpfhoHKR5rGQ1qhwhLrdDXw';
 const FLASH_SHEET_NAME = 'Flash';
 const FLASH_HISTORY_SHEET_NAME = 'FlashHistory';
-const FLASH_Q_STATS = 'FlashStatsQuestion';
+const FLASH_Q_STATE = 'FlashQuestionState';
 const FLASH_S_STATS = 'FlashStatsSubject';
 const FLASH_D_STATS = 'FlashStatsDaily';
 const FLASH_STATS_BACKUP_KEY = 'FLASH_STATS_SUMMARY_BACKUP_V1';
@@ -46,7 +46,7 @@ function normalizeStudyDate_(v,fallback){if(v instanceof Date&&!isNaN(v))return 
 function getFlashSheet_(){const sh=ss_().getSheetByName(FLASH_SHEET_NAME);if(!sh)throw new Error('Flash シートが見つかりません。');return sh;}
 function getFlashHistorySheet_(){const ss=ss_();let sh=ss.getSheetByName(FLASH_HISTORY_SHEET_NAME);if(!sh)sh=ss.insertSheet(FLASH_HISTORY_SHEET_NAME);if(sh.getLastRow()===0)sh.getRange(1,1,1,8).setValues([['日時','問','科目','回答','正答','正誤','EventID','学習日(JST)']]);return sh;}
 function getStatsSheet_(name,headers){const ss=ss_();let sh=ss.getSheetByName(name);if(!sh)sh=ss.insertSheet(name);if(sh.getLastRow()===0)sh.getRange(1,1,1,headers.length).setValues([headers]);return sh;}
-function qStats_(){return getStatsSheet_(FLASH_Q_STATS,['問','回答数','正解数']);}
+function qState_(){return getStatsSheet_(FLASH_Q_STATE,['問','出題数','正答数','最終結果','最終回答日時','重点復習','重点復習更新日時']);}
 function sStats_(){return getStatsSheet_(FLASH_S_STATS,['科目','回答数','正解数']);}
 function dStats_(){return getStatsSheet_(FLASH_D_STATS,['日付','回答数','正解数']);}
 
@@ -55,24 +55,39 @@ function isReviewPriority_(value){const s=normalizeText(value).toLowerCase();ret
 function getFlashCards(){
   const sh=getFlashSheet_(),lr=sh.getLastRow(),lc=sh.getLastColumn();if(lr<2)return[];
   const v=sh.getRange(1,1,lr,lc).getDisplayValues(),h=v[0].map(normalizeText);
-  const i={no:h.indexOf('問'),subject:h.indexOf('科目'),topic:h.indexOf('論点'),question:h.indexOf('質問'),answer:h.indexOf('正答'),reviewPriority:h.indexOf('重点復習'),source:h.indexOf('出典'),explanation:h.indexOf('解説'),detailUrl:h.indexOf('詳細リンク')};
+  const i={no:h.indexOf('問'),subject:h.indexOf('科目'),topic:h.indexOf('論点'),question:h.indexOf('質問'),answer:h.indexOf('正答'),source:h.indexOf('出典'),explanation:h.indexOf('解説'),detailUrl:h.indexOf('詳細リンク')};
   ['no','subject','topic','question','answer','source'].forEach(k=>{if(i[k]<0)throw new Error('Flash シートの列が不足しています: '+k);});
-  return v.slice(1).filter(r=>normalizeText(r[i.question])).map(r=>({no:normalizeText(r[i.no]),subject:normalizeText(r[i.subject]),topic:normalizeText(r[i.topic]),question:normalizeText(r[i.question]),answer:normalizeFlashAnswer_(r[i.answer]),reviewPriority:i.reviewPriority>=0?isReviewPriority_(r[i.reviewPriority]):false,source:normalizeText(r[i.source]),explanation:i.explanation>=0?normalizeText(r[i.explanation]):'',detailUrl:i.detailUrl>=0?normalizeText(r[i.detailUrl]):''}));
+  return v.slice(1).filter(r=>normalizeText(r[i.question])).map(r=>({no:normalizeText(r[i.no]),subject:normalizeText(r[i.subject]),topic:normalizeText(r[i.topic]),question:normalizeText(r[i.question]),answer:normalizeFlashAnswer_(r[i.answer]),source:normalizeText(r[i.source]),explanation:i.explanation>=0?normalizeText(r[i.explanation]):'',detailUrl:i.detailUrl>=0?normalizeText(r[i.detailUrl]):''}));
 }
 
+function findQuestionStateRow_(sh,no){
+  const lr=sh.getLastRow();if(lr<2)return 0;
+  const vals=sh.getRange(2,1,lr-1,1).getDisplayValues().flat();
+  const idx=vals.findIndex(v=>normalizeText(v)===no);
+  return idx<0?0:idx+2;
+}
+function ensureQuestionStateRow_(sh,no){
+  let row=findQuestionStateRow_(sh,no);
+  if(row)return row;
+  sh.appendRow([no,0,0,'','','','']);
+  return sh.getLastRow();
+}
 function setFlashReviewPriority(cardNo,enabled){
   const no=normalizeText(cardNo);if(!no)throw new Error('問番号が不正です。');
   const lock=LockService.getScriptLock();lock.waitLock(20000);
   try{
-    const sh=getFlashSheet_(),lr=sh.getLastRow(),lc=sh.getLastColumn();if(lr<2)throw new Error('Flash シートにカードがありません。');
-    const headers=sh.getRange(1,1,1,lc).getDisplayValues()[0].map(normalizeText),noCol=headers.indexOf('問'),priorityCol=headers.indexOf('重点復習');
-    if(noCol<0)throw new Error('Flash シートに「問」列がありません。');
-    if(priorityCol<0)throw new Error('Flash シートに「重点復習」列がありません。');
-    const values=sh.getRange(2,noCol+1,lr-1,1).getDisplayValues().flat();
-    const idx=values.findIndex(v=>normalizeText(v)===no);if(idx<0)throw new Error('対象の問が見つかりません: '+no);
-    const cell=sh.getRange(idx+2,priorityCol+1);if(enabled===true||String(enabled).toLowerCase()==='true')cell.setValue('○');else cell.clearContent();
-    return{success:true,cardNo:no,reviewPriority:enabled===true||String(enabled).toLowerCase()==='true'};
+    const sh=qState_(),row=ensureQuestionStateRow_(sh,no),flag=enabled===true||String(enabled).toLowerCase()==='true';
+    sh.getRange(row,6).setValue(flag?'○':'');
+    sh.getRange(row,7).setValue(new Date());
+    return{success:true,cardNo:no,reviewPriority:flag};
   }finally{lock.releaseLock();}
+}
+function updateQuestionState_(no,ok,dt){
+  const sh=qState_(),row=ensureQuestionStateRow_(sh,no);
+  sh.getRange(row,2).setValue(Number(sh.getRange(row,2).getValue()||0)+1);
+  if(ok)sh.getRange(row,3).setValue(Number(sh.getRange(row,3).getValue()||0)+1);
+  sh.getRange(row,4).setValue(ok?'○':'×');
+  sh.getRange(row,5).setValue(dt);
 }
 
 function saveFlashResult(cardNo,subject,userAnswer,correctAnswer,isCorrect,eventId,eventTimestamp){
@@ -85,7 +100,7 @@ function saveFlashResult(cardNo,subject,userAnswer,correctAnswer,isCorrect,event
     let dt=new Date();if(eventTimestamp){const p=new Date(eventTimestamp);if(!isNaN(p))dt=p;}
     const ok=isCorrect===true||String(isCorrect).toLowerCase()==='true',day=formatJstDate_(dt);
     hist.appendRow([dt,no,sub,ans,correct,ok,eid,day]);
-    incrementStat_(qStats_(),no,ok);
+    updateQuestionState_(no,ok,dt);
     incrementStat_(sStats_(),sub||'未分類',ok);
     incrementStat_(dStats_(),day,ok);
     updateStatsBackup_(sub||'未分類',day,ok);
@@ -97,19 +112,42 @@ function incrementStat_(sh,key,ok){const lr=sh.getLastRow();if(lr>=2){const vals
 
 function statSheetTotal_(sh){if(sh.getLastRow()<2)return 0;return sh.getRange(2,2,sh.getLastRow()-1,1).getValues().reduce((n,r)=>n+Number(r[0]||0),0);}
 function ensureStatsBuilt_(){
-  const q=qStats_(),s=sStats_(),d=dStats_(),hist=getFlashHistorySheet_();
+  const q=qState_(),hist=getFlashHistorySheet_();
   const historyCount=Math.max(hist.getLastRow()-1,0),questionCount=statSheetTotal_(q);
   if(historyCount>0&&questionCount!==historyCount){rebuildFlashStats();return;}
   if(historyCount===0&&questionCount===0)restoreStatsSummaryFromBackup_();
 }
 function readStatMap_(sh){const out={};if(sh.getLastRow()<2)return out;sh.getRange(2,1,sh.getLastRow()-1,3).getValues().forEach(r=>{const k=normalizeText(r[0]);if(k)out[k]={total:Number(r[1]||0),correct:Number(r[2]||0)};});return out;}
+function readQuestionStateMap_(){
+  const sh=qState_(),out={};if(sh.getLastRow()<2)return out;
+  sh.getRange(2,1,sh.getLastRow()-1,7).getValues().forEach(r=>{
+    const k=normalizeText(r[0]);if(!k)return;
+    const last=r[4] instanceof Date&&!isNaN(r[4])?r[4].toISOString():normalizeText(r[4]);
+    const pdt=r[6] instanceof Date&&!isNaN(r[6])?r[6].toISOString():normalizeText(r[6]);
+    out[k]={total:Number(r[1]||0),correct:Number(r[2]||0),lastResult:normalizeFlashAnswer_(r[3]),lastAnsweredAt:last,reviewPriority:isReviewPriority_(r[5]),priorityUpdatedAt:pdt};
+  });
+  return out;
+}
 function readDailyStatMap_(){const sh=dStats_(),out={};if(sh.getLastRow()<2)return out;sh.getRange(2,1,sh.getLastRow()-1,3).getValues().forEach(r=>{const k=normalizeStudyDate_(r[0],r[0]);if(k)out[k]={total:Number(r[1]||0),correct:Number(r[2]||0)};});return out;}
 
 function rebuildFlashStats(){
-  const q=qStats_(),s=sStats_(),d=dStats_();[q,s,d].forEach(sh=>{if(sh.getLastRow()>1)sh.getRange(2,1,sh.getLastRow()-1,sh.getLastColumn()).clearContent();});
+  const q=qState_(),s=sStats_(),d=dStats_(),priority={};
+  if(q.getLastRow()>=2)q.getRange(2,1,q.getLastRow()-1,7).getValues().forEach(r=>{const no=normalizeText(r[0]);if(no&&isReviewPriority_(r[5]))priority[no]={flag:'○',updated:r[6]};});
+  [q,s,d].forEach(sh=>{if(sh.getLastRow()>1)sh.getRange(2,1,sh.getLastRow()-1,sh.getLastColumn()).clearContent();});
   const qm={},sm={},dm={},hist=getFlashHistorySheet_(),lr=hist.getLastRow();
-  if(lr>=2)hist.getRange(2,1,lr-1,8).getValues().forEach(r=>{const no=normalizeText(r[1]);if(!no)return;const sub=normalizeText(r[2])||'未分類',ok=r[5]===true||String(r[5]).toLowerCase()==='true',day=normalizeStudyDate_(r[7],r[0]);incMap_(qm,no,ok);incMap_(sm,sub,ok);if(day)incMap_(dm,day,ok);});
-  writeMap_(q,qm);writeMap_(s,sm);writeMap_(d,dm);saveStatsSummaryBackup_(qm,sm,dm);
+  if(lr>=2)hist.getRange(2,1,lr-1,8).getValues().forEach(r=>{
+    const no=normalizeText(r[1]);if(!no)return;
+    const sub=normalizeText(r[2])||'未分類',ok=r[5]===true||String(r[5]).toLowerCase()==='true',day=normalizeStudyDate_(r[7],r[0]);
+    const dt=r[0] instanceof Date?r[0]:new Date(r[0]),valid=!isNaN(dt);
+    if(!qm[no])qm[no]={total:0,correct:0,lastResult:'',lastAnsweredAt:null};
+    qm[no].total++;if(ok)qm[no].correct++;
+    if(valid&&(!qm[no].lastAnsweredAt||dt.getTime()>qm[no].lastAnsweredAt.getTime())){qm[no].lastAnsweredAt=dt;qm[no].lastResult=ok?'○':'×';}
+    incMap_(sm,sub,ok);if(day)incMap_(dm,day,ok);
+  });
+  const qRows=Object.keys(qm).sort((a,b)=>Number(a)-Number(b)).map(no=>[no,qm[no].total,qm[no].correct,qm[no].lastResult,qm[no].lastAnsweredAt||'',priority[no]?priority[no].flag:'',priority[no]?priority[no].updated:'']);
+  Object.keys(priority).filter(no=>!qm[no]).sort((a,b)=>Number(a)-Number(b)).forEach(no=>qRows.push([no,0,0,'','',priority[no].flag,priority[no].updated]));
+  if(qRows.length)q.getRange(2,1,qRows.length,7).setValues(qRows);
+  writeMap_(s,sm);writeMap_(d,dm);saveStatsSummaryBackup_(qm,sm,dm);
   return{success:true,questions:Object.keys(qm).length,subjects:Object.keys(sm).length,days:Object.keys(dm).length,answers:Math.max(lr-1,0)};
 }
 function repairFlashStats(){ensureStatsBuilt_();return{success:true,bundle:getFlashStatsBundle()};}
@@ -144,7 +182,7 @@ function restoreStatsSummaryFromBackup_(){
 
 function getFlashStatsBundle(){
   ensureStatsBuilt_();
-  const questions=readStatMap_(qStats_()),subjects=readStatMap_(sStats_()),dayMap=readDailyStatMap_();
+  const questions=readQuestionStateMap_(),subjects=readStatMap_(sStats_()),dayMap=readDailyStatMap_();
   let total=0,correct=0;Object.keys(questions).forEach(k=>{total+=questions[k].total;correct+=questions[k].correct;});
   if(total===0){const b=readStatsBackup_();if(b){total=Number(b.total||0);correct=Number(b.correct||0);}}
   const today=formatJstDate_(new Date()),td=dayMap[today]||(readStatsBackup_()&&readStatsBackup_().days&&readStatsBackup_().days[today])||{total:0,correct:0};
@@ -152,5 +190,5 @@ function getFlashStatsBundle(){
   return{stats:{total,correct,accuracy:total?correct/total:0},daily:{date:today,goal:FLASH_DAILY_GOAL,count:td.total,correct:td.correct,accuracy:td.total?td.correct/td.total:0,remaining:Math.max(FLASH_DAILY_GOAL-td.total,0),achieved:td.total>=FLASH_DAILY_GOAL},questions,subjects,days};
 }
 function getFlashStats(){return getFlashStatsBundle().stats;}
-function getFlashQuestionStats(cardNo){const no=normalizeText(cardNo);if(!no)throw new Error('問番号が不正です。');ensureStatsBuilt_();const s=readStatMap_(qStats_())[no]||{total:0,correct:0};return{cardNo:no,total:s.total,correct:s.correct,accuracy:s.total?s.correct/s.total:0};}
+function getFlashQuestionStats(cardNo){const no=normalizeText(cardNo);if(!no)throw new Error('問番号が不正です。');ensureStatsBuilt_();const s=readQuestionStateMap_()[no]||{total:0,correct:0};return{cardNo:no,total:s.total,correct:s.correct,accuracy:s.total?s.correct/s.total:0};}
 function getFlashDailyStatus(){return getFlashStatsBundle().daily;}
