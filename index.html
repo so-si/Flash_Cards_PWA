@@ -191,6 +191,13 @@ function hasReferenceForCard(c){const s=canonicalSubject(c&&c.subject||''),t=car
 async function openCurrentReference(){const c=studyCards[currentIndex];if(!c)return;try{const bundle=await loadReferenceBundle();if(!bundle||!bundle.units)throw new Error('レジュメが端末に保存されていません。ホーム画面の「レジュメの更新」を押してください。');const s=canonicalSubject(c.subject||''),t=cardTopic(c),page=(bundle.units[s]||{})[t];if(!page)throw new Error('この分野のレジュメ本文はありません。');$('referenceTitle').textContent=s+' ＞ '+t;$('referenceFrame').srcdoc=page;$('cardView').classList.add('hidden');$('referenceView').classList.remove('hidden')}catch(e){alert(e.message||String(e))}}
 function backFromReference(){$('referenceFrame').srcdoc='';$('referenceView').classList.add('hidden');$('cardView').classList.remove('hidden')}
 function selectedTopics(){return new Set([...selectedTopicSet])}
+/* 出題重み付けルール（詳細: STUDY_WEIGHTING.md）
+ * 未出題: weight=8
+ * 既出題: 1 + 4 * ((誤答数+1)/(出題数+2))
+ * 経過時間倍率: <6h=0.2, <24h=0.5, <72h=0.8, <168h=1.0, <720h=1.2, 30日以上=1.5
+ * 重点復習: 上記weightをさらに2.5倍
+ * 出題順はブラウザ側のweightedShuffle()で生成する。
+ */
 function recencyMultiplier(lastAnsweredAt){
   if(!lastAnsweredAt)return 1;
   const t=new Date(lastAnsweredAt).getTime();if(Number.isNaN(t))return 1;
