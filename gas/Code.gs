@@ -55,9 +55,9 @@ function isReviewPriority_(value){const s=normalizeText(value).toLowerCase();ret
 function getFlashCards(){
   const sh=getFlashSheet_(),lr=sh.getLastRow(),lc=sh.getLastColumn();if(lr<2)return[];
   const v=sh.getRange(1,1,lr,lc).getDisplayValues(),h=v[0].map(normalizeText);
-  const i={no:h.indexOf('問'),subject:h.indexOf('科目'),precedent:h.indexOf('判例名'),question:h.indexOf('質問'),answer:h.indexOf('正答'),source:h.indexOf('出典'),explanation:h.indexOf('解説'),detailUrl:h.indexOf('詳細リンク'),reviewPriority:h.indexOf('重点復習')};
-  ['no','subject','precedent','question','answer','source'].forEach(k=>{if(i[k]<0)throw new Error('Flash シートの列が不足しています: '+k);});
-  return v.slice(1).filter(r=>normalizeText(r[i.question])).map(r=>({no:normalizeText(r[i.no]),subject:normalizeText(r[i.subject]),precedent:normalizeText(r[i.precedent]),question:normalizeText(r[i.question]),answer:normalizeFlashAnswer_(r[i.answer]),source:normalizeText(r[i.source]),explanation:i.explanation>=0?normalizeText(r[i.explanation]):'',detailUrl:i.detailUrl>=0?normalizeText(r[i.detailUrl]):'',reviewPriority:i.reviewPriority>=0?isReviewPriority_(r[i.reviewPriority]):false}));
+  const i={no:h.indexOf('問'),subject:h.indexOf('科目'),topic:h.indexOf('論点'),question:h.indexOf('質問'),answer:h.indexOf('正答'),reviewPriority:h.indexOf('重点復習'),source:h.indexOf('出典'),explanation:h.indexOf('解説'),detailUrl:h.indexOf('詳細リンク')};
+  ['no','subject','topic','question','answer','source'].forEach(k=>{if(i[k]<0)throw new Error('Flash シートの列が不足しています: '+k);});
+  return v.slice(1).filter(r=>normalizeText(r[i.question])).map(r=>({no:normalizeText(r[i.no]),subject:normalizeText(r[i.subject]),topic:normalizeText(r[i.topic]),question:normalizeText(r[i.question]),answer:normalizeFlashAnswer_(r[i.answer]),reviewPriority:i.reviewPriority>=0?isReviewPriority_(r[i.reviewPriority]):false,source:normalizeText(r[i.source]),explanation:i.explanation>=0?normalizeText(r[i.explanation]):'',detailUrl:i.detailUrl>=0?normalizeText(r[i.detailUrl]):''}));
 }
 
 function setFlashReviewPriority(cardNo,enabled){
