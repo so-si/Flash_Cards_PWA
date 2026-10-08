@@ -13,7 +13,7 @@
 <body>
 <div class="wrap">
 <section id="homeView">
-<div class="title">短答 Flash Cards <span style="font-size:11px;color:#666;font-weight:600;vertical-align:middle">v20.12</span></div>
+<div class="title">短答 Flash Cards <span style="font-size:11px;color:#666;font-weight:600;vertical-align:middle">v20.13</span></div>
 <div id="dataVersion" class="data-version">Flashデータ：確認中…</div>
 <div id="offlineStatus" class="status" style="margin:0 0 8px"></div><div id="message" class="message" style="margin:0 0 12px"></div>
 <div class="panel"><div class="muted">今日の目標</div><div id="dailyText" class="goal-big">今日 0 / 50問</div><div id="dailyDone" class="goal-done"></div></div>
@@ -53,7 +53,7 @@ const API_URL=(window.FLASH_CARDS_CONFIG||{}).apiUrl||'';
 const TOKEN_KEY='flashCardsApiTokenV1',OFFLINE_KEY='flashCardsOfflineCardsV1',PENDING_KEY='flashCardsPendingV1',PRIORITY_PENDING_KEY='flashCardsPriorityPendingV1',STATS_KEY='flashCardsStatsV4',QUESTION_STATS_KEY='flashCardsQuestionStatsV1',BREAKDOWN_KEY='flashCardsStatsBreakdownV1';
 const REFERENCE_DB='flashCardsReferenceV2',REFERENCE_STORE='data',REFERENCE_KEY='bundle';
 const REFERENCE_UNAVAILABLE=new Set(['憲法::統治の基本原理','憲法::憲法総合','刑法::刑法総合','民法::要件事実','民法::民法の原則','民法::物の概念','民法::民法総合','民訴法::民事訴訟法総合','刑訴法::刑事訴訟法の意義・目的','刑訴法::刑事訴訟の流れ','刑訴法::刑事訴訟法総合','商法::商法総合','行政法::行政法総合']);
-const FLASH_DATA_VERSION='v124';
+const FLASH_DATA_VERSION='v125';
 const DAILY_GOAL=50,SUBJECT_ORDER=['憲法','民法','行政法','商法','会社法','民事訴訟法','民訴法','刑法','刑事訴訟法','刑訴法'];
 const STUDYING_TOPIC_ORDER={
 '憲法':['憲法の意味','憲法の基本原理','憲法の成立過程','法の支配','憲法保障','基本的人権の原理と限界','幸福追求権','法の下の平等','精神的自由権','経済的自由権','人身の自由','国務請求権（受益権）','参政権','社会権','統治の基本原理','国会','内閣','財政','地方自治','裁判所','憲法訴訟','憲法総合'],
