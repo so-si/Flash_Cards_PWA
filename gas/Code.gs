@@ -19,6 +19,7 @@ function doGet(e) {
       case 'getFlashCards': response = {success:true,cards:getFlashCards()}; break;
       case 'setFlashReviewPriority': response = setFlashReviewPriority(payload.cardNo,payload.enabled); break;
       case 'saveFlashResult': response = saveFlashResult(payload.cardNo,payload.subject,payload.userAnswer,payload.correctAnswer,payload.isCorrect,payload.eventId,payload.timestamp); break;
+      case 'saveFlashResultsBatch': response = saveFlashResultsBatch(payload.events); break;
       case 'getFlashStats': response = {success:true,stats:getFlashStats()}; break;
       case 'getFlashDailyStatus': response = {success:true,status:getFlashDailyStatus()}; break;
       case 'getFlashQuestionStats': response = {success:true,stats:getFlashQuestionStats(payload.cardNo)}; break;
@@ -88,19 +89,68 @@ function updateQuestionState_(no,ok,dt){
 }
 
 function saveFlashResult(cardNo,subject,userAnswer,correctAnswer,isCorrect,eventId,eventTimestamp){
+  const r=saveFlashResultsBatch([{cardNo,subject,userAnswer,correctAnswer,isCorrect,eventId,timestamp:eventTimestamp}]);
+  return{success:true,duplicate:r.duplicates>0};
+}
+function saveFlashResultsBatch(events){
+  if(!Array.isArray(events))throw new Error('回答データが不正です。');
+  if(events.length>100)throw new Error('一度に同期できる回答は100件までです。');
+  if(!events.length)return{success:true,saved:0,duplicates:0,eventIds:[]};
   const lock=LockService.getScriptLock();lock.waitLock(20000);
   try{
-    const no=normalizeText(cardNo),sub=normalizeText(subject),ans=normalizeFlashAnswer_(userAnswer),correct=normalizeFlashAnswer_(correctAnswer),eid=normalizeText(eventId);
-    if(!no||!ans||!correct)throw new Error('短答回答データが不正です。');
-    const hist=getFlashHistorySheet_();
-    if(eid&&flashEventIdExists_(hist,eid))return{success:true,duplicate:true};
-    let dt=new Date();if(eventTimestamp){const p=new Date(eventTimestamp);if(!isNaN(p))dt=p;}
-    const ok=isCorrect===true||String(isCorrect).toLowerCase()==='true',day=formatJstDate_(dt);
-    hist.appendRow([dt,no,sub,ans,correct,ok,eid,day]);
-    updateQuestionState_(no,ok,dt);
-    incrementStat_(sStats_(),sub||'未分類',ok);
-    incrementStat_(dStats_(),day,ok);
-    return{success:true,duplicate:false};
+    const hist=getFlashHistorySheet_(),q=qState_(),ss=sStats_(),ds=dStats_();
+
+    const existingIds=new Set();
+    const histLast=hist.getLastRow();
+    if(histLast>=2)hist.getRange(2,7,histLast-1,1).getDisplayValues().forEach(r=>{const id=normalizeText(r[0]);if(id)existingIds.add(id);});
+
+    const qMap={};const qLast=q.getLastRow();
+    if(qLast>=2)q.getRange(2,1,qLast-1,5).getValues().forEach((r,i)=>{
+      const no=normalizeText(r[0]);if(no)qMap[no]={row:i+2,total:Number(r[1]||0),correct:Number(r[2]||0),last:r[3],priority:r[4]};
+    });
+    function readRowMap_(sh){
+      const out={},lr=sh.getLastRow();
+      if(lr>=2)sh.getRange(2,1,lr-1,3).getValues().forEach((r,i)=>{const k=normalizeText(r[0]);if(k)out[k]={row:i+2,total:Number(r[1]||0),correct:Number(r[2]||0)};});
+      return out;
+    }
+    const sMap=readRowMap_(ss),dMap=readRowMap_(ds);
+    const histRows=[],newQ=[],newS=[],newD=[],changedQ=new Set(),changedS=new Set(),changedD=new Set(),acceptedIds=[];
+    let duplicates=0;
+
+    events.forEach(ev=>{
+      const no=normalizeText(ev&&ev.cardNo),sub=normalizeText(ev&&ev.subject)||'未分類',ans=normalizeFlashAnswer_(ev&&ev.userAnswer),correct=normalizeFlashAnswer_(ev&&ev.correctAnswer),eid=normalizeText(ev&&ev.eventId);
+      if(!no||!ans||!correct)throw new Error('短答回答データが不正です。');
+      if(eid&&existingIds.has(eid)){duplicates++;acceptedIds.push(eid);return;}
+      let dt=new Date();if(ev&&ev.timestamp){const p=new Date(ev.timestamp);if(!isNaN(p))dt=p;}
+      const ok=ev&&ev.isCorrect===true||String(ev&&ev.isCorrect).toLowerCase()==='true',day=formatJstDate_(dt);
+      histRows.push([dt,no,sub,ans,correct,ok,eid,day]);
+      if(eid){existingIds.add(eid);acceptedIds.push(eid);}
+
+      let qr=qMap[no];
+      if(!qr){qr=qMap[no]={row:0,total:0,correct:0,last:'',priority:''};newQ.push(no);}
+      qr.total++;if(ok)qr.correct++;qr.last=dt;if(qr.row)changedQ.add(no);
+
+      let sr=sMap[sub];
+      if(!sr){sr=sMap[sub]={row:0,total:0,correct:0};newS.push(sub);}
+      sr.total++;if(ok)sr.correct++;if(sr.row)changedS.add(sub);
+
+      let dr=dMap[day];
+      if(!dr){dr=dMap[day]={row:0,total:0,correct:0};newD.push(day);}
+      dr.total++;if(ok)dr.correct++;if(dr.row)changedD.add(day);
+    });
+
+    if(histRows.length)hist.getRange(histLast+1,1,histRows.length,8).setValues(histRows);
+
+    changedQ.forEach(no=>{const r=qMap[no];q.getRange(r.row,2,1,3).setValues([[r.total,r.correct,r.last]]);});
+    if(newQ.length){const rows=newQ.map(no=>{const r=qMap[no];return[no,r.total,r.correct,r.last,r.priority||''];});q.getRange(q.getLastRow()+1,1,rows.length,5).setValues(rows);}
+
+    changedS.forEach(k=>{const r=sMap[k];ss.getRange(r.row,2,1,2).setValues([[r.total,r.correct]]);});
+    if(newS.length){const rows=newS.map(k=>[k,sMap[k].total,sMap[k].correct]);ss.getRange(ss.getLastRow()+1,1,rows.length,3).setValues(rows);}
+
+    changedD.forEach(k=>{const r=dMap[k];ds.getRange(r.row,2,1,2).setValues([[r.total,r.correct]]);});
+    if(newD.length){const rows=newD.map(k=>[k,dMap[k].total,dMap[k].correct]);ds.getRange(ds.getLastRow()+1,1,rows.length,3).setValues(rows);}
+
+    return{success:true,saved:histRows.length,duplicates,eventIds:acceptedIds};
   }finally{lock.releaseLock();}
 }
 function flashEventIdExists_(sh,eid){if(!eid||sh.getLastRow()<2)return false;return Boolean(sh.getRange(2,7,sh.getLastRow()-1,1).createTextFinder(eid).matchEntireCell(true).findNext());}
