@@ -16,7 +16,7 @@ function doGet(e) {
     const payload = p.payload ? JSON.parse(p.payload) : {};
     let response;
     switch (p.action) {
-      case 'getFlashCards': response = {success:true,cards:getFlashCards()}; break;
+      case 'getFlashCards': response = Object.assign({success:true},getFlashCardsPayload_()); break;
       case 'setFlashReviewPriority': response = setFlashReviewPriority(payload.cardNo,payload.enabled); break;
       case 'saveFlashResult': response = saveFlashResult(payload.cardNo,payload.subject,payload.userAnswer,payload.correctAnswer,payload.isCorrect,payload.eventId,payload.timestamp); break;
       case 'saveFlashResultsBatch': response = saveFlashResultsBatch(payload.events); break;
@@ -52,13 +52,21 @@ function dStats_(){return getStatsSheet_(FLASH_D_STATS,['日付','回答数','�
 
 function isReviewPriority_(value){const s=normalizeText(value).toLowerCase();return value===true||value===1||['1','true','yes','y','○','〇','重点','high'].indexOf(s)>=0;}
 
-function getFlashCards(){
-  const sh=getFlashSheet_(),lr=sh.getLastRow(),lc=sh.getLastColumn();if(lr<2)return[];
-  const v=sh.getRange(1,1,lr,lc).getDisplayValues(),h=v[0].map(normalizeText);
+function getFlashCardsPayload_(){
+  const sh=getFlashSheet_(),lr=sh.getLastRow(),lc=sh.getLastColumn();
+  if(lr<1)return {cards:[],version:''};
+  const v=sh.getRange(1,1,lr,lc).getDisplayValues();
+  const hasVersion=normalizeText(v[0][0]).replace(/^\uFEFF/,'')==='#VERSION';
+  const version=hasVersion?normalizeText(v[0][1]):'';
+  const headerIndex=hasVersion?1:0;
+  if(lr<=headerIndex+1)return {cards:[],version:version};
+  const h=v[headerIndex].map(normalizeText);
   const i={no:h.indexOf('問'),subject:h.indexOf('科目'),topic:h.indexOf('論点'),question:h.indexOf('質問'),answer:h.indexOf('正答'),source:h.indexOf('出典'),explanation:h.indexOf('解説'),detailUrl:h.indexOf('詳細リンク')};
   ['no','subject','topic','question','answer','source'].forEach(k=>{if(i[k]<0)throw new Error('Flash シートの列が不足しています: '+k);});
-  return v.slice(1).filter(r=>normalizeText(r[i.question])).map(r=>({no:normalizeText(r[i.no]),subject:normalizeText(r[i.subject]),topic:normalizeText(r[i.topic]),question:normalizeText(r[i.question]),answer:normalizeFlashAnswer_(r[i.answer]),source:normalizeText(r[i.source]),explanation:i.explanation>=0?normalizeText(r[i.explanation]):'',detailUrl:i.detailUrl>=0?normalizeText(r[i.detailUrl]):''}));
+  const cards=v.slice(headerIndex+1).filter(r=>normalizeText(r[i.question])).map(r=>({no:normalizeText(r[i.no]),subject:normalizeText(r[i.subject]),topic:normalizeText(r[i.topic]),question:normalizeText(r[i.question]),answer:normalizeFlashAnswer_(r[i.answer]),source:normalizeText(r[i.source]),explanation:i.explanation>=0?normalizeText(r[i.explanation]):'',detailUrl:i.detailUrl>=0?normalizeText(r[i.detailUrl]):''}));
+  return {cards:cards,version:version};
 }
+function getFlashCards(){return getFlashCardsPayload_().cards;}
 
 function findQuestionStateRow_(sh,no){
   const lr=sh.getLastRow();if(lr<2)return 0;
