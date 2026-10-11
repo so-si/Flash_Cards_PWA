@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Flash Cards 復旧</title><style>body{font-family:system-ui,sans-serif;background:#111;color:#fff;max-width:600px;margin:40px auto;padding:20px;line-height:1.7}button{font-size:18px;padding:16px;background:#fff;color:#111;border:0;border-radius:12px;width:100%}pre{white-space:pre-wrap;overflow-wrap:anywhere;color:#ccc}</style></head><body><h1>Flash Cards 復旧</h1><p>アプリの古いキャッシュとService Workerを削除し、最新版を開き直します。学習履歴・保存カード・レジュメなどの端末データ（localStorage / IndexedDB）は削除しません。</p><button id="repair">キャッシュを修復してアプリを開く</button><pre id="status">待機中</pre><script>
+document.getElementById('repair').addEventListener('click',async function(){
+ this.disabled=true;const st=document.getElementById('status');st.textContent='修復中…';
+ try{
+  let registrations=0,cacheCount=0;
+  if('serviceWorker' in navigator){const regs=await navigator.serviceWorker.getRegistrations();for(const reg of regs){if(reg.scope.startsWith(new URL('./',location.href).href)){if(await reg.unregister())registrations++}}}
+  if('caches' in window){const keys=await caches.keys();for(const key of keys){if(key.startsWith('flash-cards-pwa-')){if(await caches.delete(key))cacheCount++}}}
+  st.textContent='完了：Service Worker '+registrations+'件、キャッシュ '+cacheCount+'件を解除しました。最新版を開きます。';
+  setTimeout(()=>location.replace('./index.html?recovered='+Date.now()),500);
+ }catch(e){st.textContent='修復処理のエラー：'+(e?.message||e);this.disabled=false}
+});
+</script></body></html>
