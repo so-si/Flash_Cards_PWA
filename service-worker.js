@@ -1,4 +1,4 @@
-const CACHE_NAME = 'flash-cards-pwa-v20-18';
+const CACHE_NAME = 'flash-cards-pwa-v20-19';
 const APP_SHELL = ['./', './index.html', './config.js', './manifest.json', './version.json'];
 
 self.addEventListener('install', event => {
@@ -22,6 +22,7 @@ self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
   if (url.origin !== self.location.origin) return;
 
+  if (url.pathname.includes('/reference-data/')) {event.respondWith(fetch(event.request,{cache:'no-store'}));return;}
   const isVersion = url.pathname.endsWith('/version.json');
   if (isVersion) {
     event.respondWith(fetch(event.request, {cache:'no-store'}).catch(() => caches.match('./version.json')));
