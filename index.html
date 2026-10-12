@@ -70,7 +70,7 @@ let offlineDataCache, pendingEventsCache, priorityPendingCache, referenceBundleC
 let referenceReturnView='cardView';
 let sessionCards=[],studyCards=[],currentIndex=0,answered=false,selectedTopicSet=new Set(),knownTopicKeySet=new Set(),topicSelectionInitialized=false,remoteStats=loadJson(STATS_KEY,{total:0,correct:0,todayCount:0,today:''}),remoteQuestionStats=loadJson(QUESTION_STATS_KEY,{}),remoteBreakdown=loadJson(BREAKDOWN_KEY,{subjects:{},days:[]}),syncPromise=null;
 const JST_FORMATTER=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Tokyo',year:'numeric',month:'2-digit',day:'2-digit'});
-function $(id){return document.getElementById(id)}function loadJson(k,f){try{const v=JSON.parse(localStorage.getItem(k));return v??f}catch{return f}}function saveJson(k,v){localStorage.setItem(k,JSON.stringify(v))}function token(){return localStorage.getItem(TOKEN_KEY)||''}function setMessage(t){$('message').textContent=t||''}function normalizeAnswer(v){return ['〇','○'].includes(String(v).trim())?'○':['✕','×','X','x'].includes(String(v).trim())?'×':String(v).trim()}function uuid(){return crypto&&crypto.randomUUID?crypto.randomUUID():'fc_'+Date.now()+'_'+Math.random().toString(36).slice(2)}function jstDate(iso){const d=iso?new Date(iso):new Date();return JST_FORMATTER.format(d)}
+function $(id){return document.getElementById(id)}function loadJson(k,f){try{const v=JSON.parse(localStorage.getItem(k));return v??f}catch{return f}}function saveJson(k,v){localStorage.setItem(k,JSON.stringify(v))}function token(){return localStorage.getItem(TOKEN_KEY)||''}function setMessage(t){$('message').textContent=t||''}function normalizeAnswer(v){return ['〇','○'].includes(String(v).trim())?'○':['✕','×','X','x'].includes(String(v).trim())?'×':String(v).trim()}function uuid(){return crypto&&crypto.randomUUID?crypto.randomUUID():'fc_'+Date.now()+'_'+Math.random().toString(36).slice(2)}function jstDate(iso){const d=iso?new Date(iso):new Date();const parts=Object.fromEntries(JST_FORMATTER.formatToParts(d).filter(p=>p.type==='year'||p.type==='month'||p.type==='day').map(p=>[p.type,p.value]));return `${parts.year}-${parts.month}-${parts.day}`}
 function apiRequest(action,payload={}){if(!API_URL)return Promise.reject(new Error('GAS URLが設定されていません。'));if(!token())return Promise.reject(new Error('先に接続キーを設定してください。'));return new Promise((resolve,reject)=>{const cb='fc_'+Date.now()+'_'+Math.random().toString(36).slice(2),s=document.createElement('script');let timer;window[cb]=data=>{clearTimeout(timer);delete window[cb];s.remove();data&&data.success===false?reject(new Error(data.error||'APIエラー')):resolve(data||{})};timer=setTimeout(()=>{delete window[cb];s.remove();reject(new Error('通信がタイムアウトしました。'))},20000);const q=new URLSearchParams({action,callback:cb,token:token(),payload:JSON.stringify(payload)});s.src=API_URL+'?'+q.toString();s.onerror=()=>{clearTimeout(timer);delete window[cb];s.remove();reject(new Error('GASへの接続に失敗しました。'))};document.head.appendChild(s)})}
 let flashReloading=false;
 async function checkForAppUpdate(manual=false){
@@ -151,7 +151,32 @@ function renderSubjects(cards){const box=$('subjects'),counts=new Map();cards.fo
 async function updateCards(quiet=false){if(!navigator.onLine){if(!quiet)setMessage('オフライン中はカードを更新できません。');return false}try{if(!quiet)setMessage('カードを更新しています…');const r=await apiRequest('getFlashCards'),cards=sanitizeCards(r.cards),dataVersion=/^v\d+$/.test(String(r.version||'').trim())?String(r.version).trim():'バージョン不明';setOfflineData({cards,version:dataVersion,updatedAt:new Date().toISOString()});sessionCards=cards;renderSubjects(cards);updateOfflineStatus();if(!quiet)setMessage(`${dataVersion} / ${cards.length}問に更新しました。`);return true}catch(e){if(!quiet)setMessage(e.message);return false}}
 function pendingEvents(){if(pendingEventsCache===undefined)pendingEventsCache=loadJson(PENDING_KEY,[]);return pendingEventsCache}function setPending(e){pendingEventsCache=e;saveJson(PENDING_KEY,e)}function priorityPending(){if(priorityPendingCache===undefined)priorityPendingCache=loadJson(PRIORITY_PENDING_KEY,[]);return priorityPendingCache}function setPriorityPending(e){priorityPendingCache=e;saveJson(PRIORITY_PENDING_KEY,e)}function queuePriorityChange(cardNo,enabled){const no=String(cardNo),q=priorityPending().filter(x=>String(x.cardNo)!==no);q.push({cardNo:no,enabled:!!enabled});setPriorityPending(q)}function setLocalReviewPriority(cardNo,enabled){const no=String(cardNo),s=remoteQuestionStats[no]||{total:0,correct:0};s.reviewPriority=!!enabled;s.priorityUpdatedAt=new Date().toISOString();remoteQuestionStats[no]=s;saveJson(QUESTION_STATS_KEY,remoteQuestionStats)}async function syncPriorityPending(){if(!navigator.onLine||!token())return;const q=priorityPending(),remain=[];for(const ch of q){try{await apiRequest('setFlashReviewPriority',ch)}catch(e){remain.push(ch)}}setPriorityPending(remain)}function pendingToday(){const today=jstDate();return pendingEvents().filter(x=>jstDate(x.timestamp)===today).length}function displayStats(){const p=pendingEvents(),today=jstDate(),baseToday=remoteStats.today===today?Number(remoteStats.todayCount||0):0;return{total:Number(remoteStats.total||0)+p.length,correct:Number(remoteStats.correct||0)+p.filter(x=>x.isCorrect).length,todayCount:baseToday+pendingToday()}}
 function combinedSubjectStats(){const out={};const base=remoteBreakdown&&remoteBreakdown.subjects&&typeof remoteBreakdown.subjects==='object'?remoteBreakdown.subjects:{};Object.keys(base).forEach(k=>out[k]={total:Number(base[k].total||0),correct:Number(base[k].correct||0)});pendingEvents().forEach(ev=>{const k=ev.subject||'未分類';if(!out[k])out[k]={total:0,correct:0};out[k].total++;if(ev.isCorrect)out[k].correct++});return out}
-function normalizeDayKey(v){const s=String(v||'').trim();if(/^\\d{4}-\\d{2}-\\d{2}$/.test(s))return s;const d=new Date(v);return isNaN(d)?s:jstDate(d.toISOString())}function combinedDailyStats(){const out={};const days=remoteBreakdown&&Array.isArray(remoteBreakdown.days)?remoteBreakdown.days:[];days.forEach(d=>{if(d&&d.date){const key=normalizeDayKey(d.date);if(key)out[key]={total:Number(d.total||0),correct:Number(d.correct||0)}}});pendingEvents().forEach(ev=>{const day=jstDate(ev.timestamp);if(!out[day])out[day]={total:0,correct:0};out[day].total++;if(ev.isCorrect)out[day].correct++});return out}
+function normalizeDayKey(v){
+  const s=String(v??'').trim();
+  if(!s)return '';
+  // Spreadsheet dates can be YYYY-MM-DD, timestamps or locale-formatted strings.
+  // Treat a date-only value as the already assigned calendar day.
+  const iso=s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:$|[T\s])/);
+  if(iso&&s.length<=10)return iso[1]+'-'+iso[2].padStart(2,'0')+'-'+iso[3].padStart(2,'0');
+  const slash=s.match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})$/);
+  if(slash)return slash[1]+'-'+slash[2].padStart(2,'0')+'-'+slash[3].padStart(2,'0');
+  const d=new Date(s);
+  return Number.isNaN(d.getTime())?'':jstDate(d.toISOString());
+}
+function combinedDailyStats(){
+  const out=Object.create(null);
+  function add(day,total,correct){
+    const key=normalizeDayKey(day);
+    if(!key||!/^\d{4}-\d{2}-\d{2}$/.test(key))return;
+    if(!out[key])out[key]={total:0,correct:0};
+    out[key].total+=Number(total)||0;
+    out[key].correct+=Number(correct)||0;
+  }
+  const days=remoteBreakdown&&Array.isArray(remoteBreakdown.days)?remoteBreakdown.days:[];
+  days.forEach(d=>{if(d&&d.date)add(d.date,d.total,d.correct)});
+  pendingEvents().forEach(ev=>add(jstDate(ev.timestamp),1,ev.isCorrect?1:0));
+  return out;
+}
 function pct(correct,total){return total?((correct/total)*100).toFixed(1)+'%':'0.0%'}
 function rankingTable(keys,dayMap,today){
   const top=keys.slice(0,10);
