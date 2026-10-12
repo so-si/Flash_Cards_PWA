@@ -41,7 +41,13 @@ function ss_(){return SpreadsheetApp.openById(SPREADSHEET_ID);}
 function normalizeText(v){return v==null?'':String(v).trim();}
 function formatJstDate_(d){return Utilities.formatDate(d,JST_TIMEZONE,'yyyy-MM-dd');}
 function normalizeFlashAnswer_(v){const s=normalizeText(v);if(s==='〇'||s==='○')return '○';if(s==='✕'||s==='×'||s.toLowerCase()==='x')return '×';return s;}
-function normalizeStudyDate_(v,fallback){if(v instanceof Date&&!isNaN(v))return formatJstDate_(v);const s=normalizeText(v);if(/^\\d{4}-\\d{2}-\\d{2}$/.test(s))return s;const d=s?new Date(s):new Date(fallback);return isNaN(d)?'':formatJstDate_(d);}
+function normalizeStudyDate_(v,fallback){
+  if(v instanceof Date&&!isNaN(v.getTime()))return formatJstDate_(v);
+  const raw=normalizeText(v),m=raw.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
+  if(m)return m[1]+'-'+m[2].padStart(2,'0')+'-'+m[3].padStart(2,'0');
+  const d=raw?new Date(raw):new Date(fallback);
+  return isNaN(d.getTime())?'':formatJstDate_(d);
+}
 
 function getFlashSheet_(){const sh=ss_().getSheetByName(FLASH_SHEET_NAME);if(!sh)throw new Error('Flash シートが見つかりません。');return sh;}
 function getFlashHistorySheet_(){const ss=ss_();let sh=ss.getSheetByName(FLASH_HISTORY_SHEET_NAME);if(!sh)sh=ss.insertSheet(FLASH_HISTORY_SHEET_NAME);if(sh.getLastRow()===0)sh.getRange(1,1,1,8).setValues([['日時','問','科目','回答','正答','正誤','EventID','学習日(JST)']]);return sh;}
@@ -121,7 +127,12 @@ function saveFlashResultsBatch(events){
       if(lr>=2)sh.getRange(2,1,lr-1,3).getValues().forEach((r,i)=>{const k=normalizeText(r[0]);if(k)out[k]={row:i+2,total:Number(r[1]||0),correct:Number(r[2]||0)};});
       return out;
     }
-    const sMap=readRowMap_(ss),dMap=readRowMap_(ds);
+    const sMap=readRowMap_(ss),dMap={};
+    const dLast=ds.getLastRow();
+    if(dLast>=2)ds.getRange(2,1,dLast-1,3).getValues().forEach((r,i)=>{
+      const day=normalizeStudyDate_(r[0],r[0]);
+      if(day&&!dMap[day])dMap[day]={row:i+2,total:Number(r[1]||0),correct:Number(r[2]||0)};
+    });
     const histRows=[],newQ=[],newS=[],newD=[],changedQ=new Set(),changedS=new Set(),changedD=new Set(),acceptedIds=[];
     let duplicates=0;
 
@@ -166,9 +177,32 @@ function incrementStat_(sh,key,ok){const lr=sh.getLastRow();if(lr>=2){const vals
 
 function statSheetTotal_(sh){if(sh.getLastRow()<2)return 0;return sh.getRange(2,2,sh.getLastRow()-1,1).getValues().reduce((n,r)=>n+Number(r[0]||0),0);}
 function ensureStatsBuilt_(){
-  const q=qState_(),hist=getFlashHistorySheet_();
+  const q=qState_(),hist=getFlashHistorySheet_(),daily=dStats_();
   const historyCount=Math.max(hist.getLastRow()-1,0),questionCount=statSheetTotal_(q);
-  if(historyCount!==questionCount)rebuildFlashStats();
+  const dailyCount=statSheetTotal_(daily);
+  let badDaily=historyCount!==dailyCount;
+  if(!badDaily&&daily.getLastRow()>2){
+    const seen=new Set();
+    daily.getRange(2,1,daily.getLastRow()-1,1).getValues().forEach(r=>{
+      const key=normalizeStudyDate_(r[0],r[0]);
+      if(!key||seen.has(key))badDaily=true;
+      if(key)seen.add(key);
+    });
+  }
+  if(historyCount!==questionCount||badDaily){
+    const lock=LockService.getScriptLock();lock.waitLock(20000);
+    try{
+      const actualHistory=Math.max(getFlashHistorySheet_().getLastRow()-1,0);
+      const ds=dStats_(),found=new Set();
+      let duplicate=false;
+      if(ds.getLastRow()>1)ds.getRange(2,1,ds.getLastRow()-1,1).getValues().forEach(r=>{
+        const k=normalizeStudyDate_(r[0],r[0]);
+        if(!k||found.has(k))duplicate=true;
+        if(k)found.add(k);
+      });
+      if(actualHistory!==statSheetTotal_(qState_())||actualHistory!==statSheetTotal_(ds)||duplicate)rebuildFlashStats();
+    }finally{lock.releaseLock();}
+  }
 }
 function readStatMap_(sh){const out={};if(sh.getLastRow()<2)return out;sh.getRange(2,1,sh.getLastRow()-1,3).getValues().forEach(r=>{const k=normalizeText(r[0]);if(k)out[k]={total:Number(r[1]||0),correct:Number(r[2]||0)};});return out;}
 function readQuestionStateMap_(){
@@ -180,7 +214,15 @@ function readQuestionStateMap_(){
   });
   return out;
 }
-function readDailyStatMap_(){const sh=dStats_(),out={};if(sh.getLastRow()<2)return out;sh.getRange(2,1,sh.getLastRow()-1,3).getValues().forEach(r=>{const k=normalizeStudyDate_(r[0],r[0]);if(k)out[k]={total:Number(r[1]||0),correct:Number(r[2]||0)};});return out;}
+function readDailyStatMap_(){
+  const sh=dStats_(),out={};
+  if(sh.getLastRow()<2)return out;
+  sh.getRange(2,1,sh.getLastRow()-1,3).getValues().forEach(r=>{
+    const k=normalizeStudyDate_(r[0],r[0]);
+    if(k){if(!out[k])out[k]={total:0,correct:0};out[k].total+=Number(r[1]||0);out[k].correct+=Number(r[2]||0);}
+  });
+  return out;
+}
 
 function rebuildFlashStats(){
   const q=qState_(),s=sStats_(),d=dStats_(),priority={};
@@ -202,7 +244,11 @@ function rebuildFlashStats(){
   writeMap_(s,sm);writeMap_(d,dm);
   return{success:true,questions:Object.keys(qm).length,subjects:Object.keys(sm).length,days:Object.keys(dm).length,answers:Math.max(lr-1,0)};
 }
-function repairFlashStats(){ensureStatsBuilt_();return{success:true,bundle:getFlashStatsBundle()};}
+function repairFlashStats(){
+  const lock=LockService.getScriptLock();lock.waitLock(20000);
+  try{return{success:true,repair:rebuildFlashStats()};}
+  finally{lock.releaseLock();}
+}
 function incMap_(m,k,ok){if(!m[k])m[k]={total:0,correct:0};m[k].total++;if(ok)m[k].correct++;}
 function writeMap_(sh,m){const rows=Object.keys(m).sort().map(k=>[k,m[k].total,m[k].correct]);if(rows.length)sh.getRange(2,1,rows.length,3).setValues(rows);}
 
