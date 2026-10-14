@@ -293,7 +293,7 @@ async function openSelectedReference(){
   window.scrollTo(0,0);
  }catch(e){$('referenceBrowseStatus').textContent=e.message||String(e)}
 }
-async function openCurrentReference(){const c=studyCards[currentIndex];if(!c)return;try{const bundle=await loadReferenceBundle();if(!bundle)throw new Error('レジュメが端末に保存されていません。ホーム画面の「レジュメの更新」を押してください。');const s=canonicalSubject(c.subject||''),t=cardTopic(c),page=extractReferencePage(bundle,s,t);if(!page)throw new Error('この分野のレジュメ本文はありません。');referenceReturnView='cardView';setReferencePractice(s,t,false);$('referenceTitle').textContent=s+' ＞ '+t;$('referenceFrame').srcdoc=page;$('cardView').classList.add('hidden');$('referenceView').classList.remove('hidden')}catch(e){alert(e.message||String(e))}}
+async function openCurrentReference(){const c=studyCards[currentIndex];if(!c)return;try{const bundle=await loadReferenceBundle();if(!bundle)throw new Error('レジュメが端末に保存されていません。ホーム画面の「レジュメの更新」を押してください。');const s=canonicalSubject(c.subject||''),t=cardTopic(c),page=extractReferencePage(bundle,s,t);if(!page)throw new Error('この分野のレジュメ本文はありません。');referenceReturnView='cardView';setReferencePractice(s,t,true);$('referenceTitle').textContent=s+' ＞ '+t;$('referenceFrame').srcdoc=page;$('cardView').classList.add('hidden');$('referenceView').classList.remove('hidden')}catch(e){alert(e.message||String(e))}}
 function referencePracticeCards(s,t){return availableCards().filter(c=>canonicalSubject(c.subject||'')===canonicalSubject(s)&&cardTopic(c)===t)}
 function setReferencePractice(s,t,enabled){
  referencePracticeSubject=s;referencePracticeTopic=t;
