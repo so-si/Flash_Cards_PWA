@@ -253,7 +253,7 @@ try{
  const previous=JSON.parse(localStorage.getItem('flashCardsReferenceLawRevisionsV1')||'{}'),pending=new Map(),laws=[];
  for(const f of mf.files){
   if(!f.subject||!f.revision||!/^laws\/[a-z-]+\.json$/.test(f.path))throw new Error('参照ファイル指定が不正です。');
-  let item=previous[f.subject]===f.revision?await loadReferenceLaw(f.subject):null;
+  let item=null; // Manual reference updates always fetch the current law file, even if manifest revisions are stale.
   if(!item){status.textContent=f.subject+'をダウンロード中…';const r=await fetch('./reference-data/'+f.path+'?rev='+encodeURIComponent(f.revision),{cache:'no-store'});if(!r.ok)throw new Error(f.subject+'取得失敗（HTTP '+r.status+'）');item=await r.json();pending.set(f.subject,item)}
   if(item.schema_version!==3||!item.document_html||!item.sections||Object.keys(item.sections).length!==f.count)throw new Error(f.subject+'のデータが不正です。');
   laws.push({f,item});
