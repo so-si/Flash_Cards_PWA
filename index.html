@@ -13,7 +13,7 @@
 <body>
 <div class="wrap">
 <section id="homeView">
-<div class="title">短答 Flash Cards <span style="font-size:11px;color:#666;font-weight:600;vertical-align:middle">v20.18</span></div>
+<div class="title">短答 Flash Cards <span style="font-size:11px;color:#666;font-weight:600;vertical-align:middle">v20.22</span></div>
 <div id="dataVersion" class="data-version">Flashデータ：確認中…</div>
 <div id="offlineStatus" class="status" style="margin:0 0 8px"></div><div id="message" class="message" style="margin:0 0 12px"></div>
 <div class="panel"><div class="muted">今日の目標</div><div id="dailyText" class="goal-big">今日 0 / 50問</div><div id="dailyDone" class="goal-done"></div></div>
@@ -79,7 +79,7 @@ async function checkForAppUpdate(manual=false){
     if(btn&&manual)btn.textContent='確認中…';
     const r=await fetch('./version.json?t='+Date.now(),{cache:'no-store'});if(!r.ok)throw new Error('version check failed');
     const v=await r.json(),latest=String(v.version||'').trim();
-    if(latest&&latest!=='20.20'){
+    if(latest&&latest!=='20.22'){
       if(btn){btn.textContent='v'+latest+'へ更新';btn.onclick=()=>applyAppUpdate(latest)}
       if(manual)setMessage('最新版 v'+latest+' があります。');
     }else{
