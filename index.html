@@ -13,7 +13,7 @@
 <body>
 <div class="wrap">
 <section id="homeView">
-<div class="title">短答 Flash Cards <span style="font-size:11px;color:#666;font-weight:600;vertical-align:middle">v20.22</span></div>
+<div class="title">短答 Flash Cards <span id="appVersionLabel" style="font-size:11px;color:#666;font-weight:600;vertical-align:middle">確認中…</span></div>
 <div id="dataVersion" class="data-version">Flashデータ：確認中…</div>
 <div id="offlineStatus" class="status" style="margin:0 0 8px"></div><div id="message" class="message" style="margin:0 0 12px"></div>
 <div class="panel"><div class="muted">今日の目標</div><div id="dailyText" class="goal-big">今日 0 / 50問</div><div id="dailyDone" class="goal-done"></div></div>
@@ -73,20 +73,30 @@ const JST_FORMATTER=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Tokyo',year:
 function $(id){return document.getElementById(id)}function loadJson(k,f){try{const v=JSON.parse(localStorage.getItem(k));return v??f}catch{return f}}function saveJson(k,v){localStorage.setItem(k,JSON.stringify(v))}function token(){return localStorage.getItem(TOKEN_KEY)||''}function setMessage(t){$('message').textContent=t||''}function normalizeAnswer(v){return ['〇','○'].includes(String(v).trim())?'○':['✕','×','X','x'].includes(String(v).trim())?'×':String(v).trim()}function uuid(){return crypto&&crypto.randomUUID?crypto.randomUUID():'fc_'+Date.now()+'_'+Math.random().toString(36).slice(2)}function jstDate(iso){const d=iso?new Date(iso):new Date();const parts=Object.fromEntries(JST_FORMATTER.formatToParts(d).filter(p=>p.type==='year'||p.type==='month'||p.type==='day').map(p=>[p.type,p.value]));return `${parts.year}-${parts.month}-${parts.day}`}
 function apiRequest(action,payload={}){if(!API_URL)return Promise.reject(new Error('GAS URLが設定されていません。'));if(!token())return Promise.reject(new Error('先に接続キーを設定してください。'));return new Promise((resolve,reject)=>{const cb='fc_'+Date.now()+'_'+Math.random().toString(36).slice(2),s=document.createElement('script');let timer;window[cb]=data=>{clearTimeout(timer);delete window[cb];s.remove();data&&data.success===false?reject(new Error(data.error||'APIエラー')):resolve(data||{})};timer=setTimeout(()=>{delete window[cb];s.remove();reject(new Error('通信がタイムアウトしました。'))},20000);const q=new URLSearchParams({action,callback:cb,token:token(),payload:JSON.stringify(payload)});s.src=API_URL+'?'+q.toString();s.onerror=()=>{clearTimeout(timer);delete window[cb];s.remove();reject(new Error('GASへの接続に失敗しました。'))};document.head.appendChild(s)})}
 let flashReloading=false;
+const INSTALLED_VERSION_KEY='flashCardsInstalledAppVersionV1';
+function installedAppVersion(){
+ const fromUrl=new URLSearchParams(location.search).get('v');
+ if(fromUrl&&/^\d+(?:\.\d+)+$/.test(fromUrl)){localStorage.setItem(INSTALLED_VERSION_KEY,fromUrl);return fromUrl}
+ return localStorage.getItem(INSTALLED_VERSION_KEY)||'';
+}
 async function checkForAppUpdate(manual=false){
-  const btn=$('appUpdateBtn');
-  try{
-    if(btn&&manual)btn.textContent='確認中…';
-    const r=await fetch('./version.json?t='+Date.now(),{cache:'no-store'});if(!r.ok)throw new Error('version check failed');
-    const v=await r.json(),latest=String(v.version||'').trim();
-    if(latest&&latest!=='20.22'){
-      if(btn){btn.textContent='v'+latest+'へ更新';btn.onclick=()=>applyAppUpdate(latest)}
-      if(manual)setMessage('最新版 v'+latest+' があります。');
-    }else{
-      if(btn){btn.textContent='最新版です';setTimeout(()=>{if(btn)btn.textContent='最新版を確認'},1800)}
-      if(manual)setMessage('現在のアプリは最新版です。');
-    }
-  }catch(e){if(btn)btn.textContent='最新版を確認';if(manual)setMessage('更新確認に失敗しました。通信状態を確認してください。')}
+ const btn=$('appUpdateBtn');
+ try{
+  if(btn&&manual)btn.textContent='確認中…';
+  const r=await fetch('./version.json?t='+Date.now(),{cache:'no-store'});
+  if(!r.ok)throw new Error('version check failed');
+  const v=await r.json(),latest=String(v.version||'').trim();
+  if(!/^\d+(?:\.\d+)+$/.test(latest))throw new Error('invalid app version');
+  const installed=installedAppVersion(),label=$('appVersionLabel');
+  if(label)label.textContent='v'+(installed||latest);
+  if(installed!==latest){
+   if(btn){btn.textContent='v'+latest+'へ更新';btn.onclick=()=>applyAppUpdate(latest)}
+   if(manual)setMessage('最新版 v'+latest+' があります。');
+  }else{
+   if(btn){btn.onclick=()=>checkForAppUpdate(true);btn.textContent='最新版です';setTimeout(()=>{if(btn)btn.textContent='最新版を確認'},1800)}
+   if(manual)setMessage('現在のアプリは最新版です。');
+  }
+ }catch(e){if(btn)btn.textContent='最新版を確認';if(manual)setMessage('更新確認に失敗しました。通信状態を確認してください。')}
 }
 async function applyAppUpdate(latest){
   const btn=$('appUpdateBtn');
@@ -97,7 +107,7 @@ async function applyAppUpdate(latest){
       if(reg.waiting)reg.waiting.postMessage({type:'SKIP_WAITING'});
       await new Promise(resolve=>setTimeout(resolve,600));
     }
-    flashReloading=true;location.replace('./?v='+encodeURIComponent(latest)+'&t='+Date.now());
+    localStorage.setItem(INSTALLED_VERSION_KEY,latest);flashReloading=true;location.replace('./?v='+encodeURIComponent(latest)+'&t='+Date.now());
   }catch(e){if(btn)btn.textContent='更新を再試行';setMessage('アプリ更新に失敗しました。もう一度押してください。')}
 }
 function setApiToken(){const v=prompt('接続キーを入力してください。',token());if(v!==null){localStorage.setItem(TOKEN_KEY,v.trim());setMessage('接続キーを保存しました。')}}function isReviewPriority(v){if(v===true||v===1)return true;const s=String(v??'').trim().toLowerCase();return ['1','true','yes','y','○','〇','重点','high'].includes(s)}function sanitizeCards(cards){return (Array.isArray(cards)?cards:[]).map(c=>({...c,topic:String(c?.topic||'').trim()}))}function getOfflineData(){if(offlineDataCache!==undefined)return offlineDataCache;const d=loadJson(OFFLINE_KEY,null);if(!d||!Array.isArray(d.cards)){offlineDataCache=d;return d}const needsClean=d.cards.some(c=>c.topic!==String(c?.topic||'').trim());if(needsClean){d.cards=sanitizeCards(d.cards);saveJson(OFFLINE_KEY,d)}offlineDataCache=d;return d}function setOfflineData(d){offlineDataCache=d;saveJson(OFFLINE_KEY,d)}function availableCards(){return sessionCards.length?sessionCards:(getOfflineData()?.cards||[])}function updateOfflineStatus(){const d=getOfflineData();$('offlineStatus').textContent=d&&Array.isArray(d.cards)?`端末保存：${d.cards.length}問 / ${new Date(d.updatedAt).toLocaleString('ja-JP')}`:'端末保存：未保存';updateDataVersion()}
