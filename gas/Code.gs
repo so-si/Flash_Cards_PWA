@@ -18,7 +18,7 @@ function doGet(e) {
     switch (p.action) {
       case 'getFlashCards': response = Object.assign({success:true},getFlashCardsPayload_()); break;
       case 'markFlashResultReview': response = markFlashResultReview(payload.eventId); break;
-      case 'saveFlashResult': response = saveFlashResult(payload.cardNo,payload.subject,payload.userAnswer,payload.correctAnswer,payload.isCorrect,payload.eventId,payload.timestamp); break;
+      case 'saveFlashResult': response = saveFlashResult(payload.cardNo,payload.subject,payload.userAnswer,payload.correctAnswer,payload.isCorrect,payload.eventId,payload.timestamp,payload.needsReview); break;
       case 'saveFlashResultsBatch': response = saveFlashResultsBatch(payload.events); break;
       case 'getFlashStats': response = {success:true,stats:getFlashStats()}; break;
       case 'getFlashDailyStatus': response = {success:true,status:getFlashDailyStatus()}; break;
@@ -92,8 +92,8 @@ function updateQuestionState_(no,ok,dt){
   sh.getRange(row,4).setValue(dt);
 }
 
-function saveFlashResult(cardNo,subject,userAnswer,correctAnswer,isCorrect,eventId,eventTimestamp){
-  const r=saveFlashResultsBatch([{cardNo,subject,userAnswer,correctAnswer,isCorrect,eventId,timestamp:eventTimestamp}]);
+function saveFlashResult(cardNo,subject,userAnswer,correctAnswer,isCorrect,eventId,eventTimestamp,needsReview){
+  const r=saveFlashResultsBatch([{cardNo,subject,userAnswer,correctAnswer,isCorrect,eventId,timestamp:eventTimestamp,needsReview}]);
   return{success:true,duplicate:r.duplicates>0};
 }
 function saveFlashResultsBatch(events){
@@ -255,12 +255,11 @@ function getFlashDailyStatus(){return getFlashStatsBundle().daily;}
 function getFlashReviewQueue(){
  const today=formatJstDate_(new Date()),cutoff=new Date();cutoff.setDate(cutoff.getDate()-8);
  const cutoffDay=formatJstDate_(cutoff),wrongByDay={},h=getFlashHistorySheet_(),lr=h.getLastRow();
- if(lr>=2)h.getRange(2,1,lr-1,8).getValues().forEach(r=>{
+ if(lr>=2)h.getRange(2,1,lr-1,9).getValues().forEach(r=>{
  const day=normalizeStudyDate_(r[7],r[0]),no=normalizeText(r[1]),correct=r[5]===true||String(r[5]).toLowerCase()==='true';
  if(no&&(!correct||r[8]===true)&&day>=cutoffDay&&day<today){if(!wrongByDay[day])wrongByDay[day]=[];wrongByDay[day].push(no);}
  });
  Object.keys(wrongByDay).forEach(day=>wrongByDay[day]=[...new Set(wrongByDay[day])]);
- const states=readQuestionStateMap_();
  return {wrongByDay,asOf:new Date().toISOString()};
 }
 
