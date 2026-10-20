@@ -71,3 +71,14 @@ weight *= 2.5
 - PWA: 上記状態を使ってweight計算・出題順生成
 
 重み付けロジックを変更する場合は、原則として `index.html` の `cardStudyWeight()` と本ファイルを同時に更新する。
+
+
+## v20.27 出題順序（2026-10-20）
+
+対象は選択中の科目・論点、またはレジュメから指定した分野の問題。
+
+1. 前日（JST）の誤答と、重点復習登録中の問題を先にすべて出題する。
+2. 続いて、直近7日（当日除外）の誤答から未出題の最大20問を出題する。
+3. その後、残りを本書に記載した従来の重み付きアルゴリズムで出題する。
+
+各段階の内部順序は weightedShuffle()。セッション中は問題番号で重複を排除する。前日・7日の境界は日本時間。GAS の getFlashReviewQueue() が FlashHistory と FlashQuestionState を読み、端末側は結果を保存しオフラインで再利用する。未同期回答も復習対象に加える。実装は index.html の buildReviewStudyQueue() と gas/Code.gs の getFlashReviewQueue()。1日の目標は100問。
