@@ -17,7 +17,7 @@ function doGet(e) {
     let response;
     switch (p.action) {
       case 'getFlashCards': response = Object.assign({success:true},getFlashCardsPayload_()); break;
-      case 'setFlashReviewPriority': response = setFlashReviewPriority(payload.cardNo,payload.enabled); break;
+      case 'markFlashResultReview': response = markFlashResultReview(payload.eventId); break;
       case 'saveFlashResult': response = saveFlashResult(payload.cardNo,payload.subject,payload.userAnswer,payload.correctAnswer,payload.isCorrect,payload.eventId,payload.timestamp); break;
       case 'saveFlashResultsBatch': response = saveFlashResultsBatch(payload.events); break;
       case 'getFlashStats': response = {success:true,stats:getFlashStats()}; break;
@@ -53,11 +53,9 @@ function normalizeStudyDate_(v,fallback){
 function getFlashSheet_(){const sh=ss_().getSheetByName(FLASH_SHEET_NAME);if(!sh)throw new Error('Flash シートが見つかりません。');return sh;}
 function getFlashHistorySheet_(){const ss=ss_();let sh=ss.getSheetByName(FLASH_HISTORY_SHEET_NAME);if(!sh)sh=ss.insertSheet(FLASH_HISTORY_SHEET_NAME);if(sh.getLastRow()===0)sh.getRange(1,1,1,8).setValues([['日時','問','科目','回答','正答','正誤','EventID','学習日(JST)']]);return sh;}
 function getStatsSheet_(name,headers){const ss=ss_();let sh=ss.getSheetByName(name);if(!sh)sh=ss.insertSheet(name);if(sh.getLastRow()===0)sh.getRange(1,1,1,headers.length).setValues([headers]);return sh;}
-function qState_(){return getStatsSheet_(FLASH_Q_STATE,['問','出題数','正答数','最終回答日時','重点復習']);}
+function qState_(){return getStatsSheet_(FLASH_Q_STATE,['問','出題数','正答数','最終回答日時','最終要復習']);}
 function sStats_(){return getStatsSheet_(FLASH_S_STATS,['科目','回答数','正解数']);}
 function dStats_(){return getStatsSheet_(FLASH_D_STATS,['日付','回答数','正解数']);}
-
-function isReviewPriority_(value){const s=normalizeText(value).toLowerCase();return value===true||value===1||['1','true','yes','y','○','〇','重点','high'].indexOf(s)>=0;}
 
 function getFlashCardsPayload_(){
   const sh=getFlashSheet_(),lr=sh.getLastRow(),lc=sh.getLastColumn();
@@ -87,15 +85,6 @@ function ensureQuestionStateRow_(sh,no){
   sh.appendRow([no,0,0,'','']);
   return sh.getLastRow();
 }
-function setFlashReviewPriority(cardNo,enabled){
-  const no=normalizeText(cardNo);if(!no)throw new Error('問番号が不正です。');
-  const lock=LockService.getScriptLock();lock.waitLock(20000);
-  try{
-    const sh=qState_(),row=ensureQuestionStateRow_(sh,no),flag=enabled===true||String(enabled).toLowerCase()==='true';
-    sh.getRange(row,5).setValue(flag?'○':'');
-    return{success:true,cardNo:no,reviewPriority:flag};
-  }finally{lock.releaseLock();}
-}
 function updateQuestionState_(no,ok,dt){
   const sh=qState_(),row=ensureQuestionStateRow_(sh,no);
   sh.getRange(row,2).setValue(Number(sh.getRange(row,2).getValue()||0)+1);
@@ -121,7 +110,7 @@ function saveFlashResultsBatch(events){
 
     const qMap={};const qLast=q.getLastRow();
     if(qLast>=2)q.getRange(2,1,qLast-1,5).getValues().forEach((r,i)=>{
-      const no=normalizeText(r[0]);if(no)qMap[no]={row:i+2,total:Number(r[1]||0),correct:Number(r[2]||0),last:r[3],priority:r[4]};
+      const no=normalizeText(r[0]);if(no)qMap[no]={row:i+2,total:Number(r[1]||0),correct:Number(r[2]||0),last:r[3],needsReview:r[4]===true};
     });
     function readRowMap_(sh){
       const out={},lr=sh.getLastRow();
@@ -143,12 +132,12 @@ function saveFlashResultsBatch(events){
       if(eid&&existingIds.has(eid)){duplicates++;acceptedIds.push(eid);return;}
       let dt=new Date();if(ev&&ev.timestamp){const p=new Date(ev.timestamp);if(!isNaN(p))dt=p;}
       const ok=ev&&ev.isCorrect===true||String(ev&&ev.isCorrect).toLowerCase()==='true',day=formatJstDate_(dt);
-      histRows.push([dt,no,sub,ans,correct,ok,eid,day]);
+      histRows.push([dt,no,sub,ans,correct,ok,eid,day,ev.needsReview===true]);
       if(eid){existingIds.add(eid);acceptedIds.push(eid);}
 
       let qr=qMap[no];
-      if(!qr){qr=qMap[no]={row:0,total:0,correct:0,last:'',priority:''};newQ.push(no);}
-      qr.total++;if(ok)qr.correct++;qr.last=dt;if(qr.row)changedQ.add(no);
+      if(!qr){qr=qMap[no]={row:0,total:0,correct:0,last:'',needsReview:false};newQ.push(no);}
+      qr.total++;if(ok)qr.correct++;qr.last=dt;qr.needsReview=!ok||ev.needsReview===true;if(qr.row)changedQ.add(no);
 
       let sr=sMap[sub];
       if(!sr){sr=sMap[sub]={row:0,total:0,correct:0};newS.push(sub);}
@@ -159,10 +148,10 @@ function saveFlashResultsBatch(events){
       dr.total++;if(ok)dr.correct++;if(dr.row)changedD.add(day);
     });
 
-    if(histRows.length)hist.getRange(histLast+1,1,histRows.length,8).setValues(histRows);
+    if(histRows.length)hist.getRange(histLast+1,1,histRows.length,9).setValues(histRows);
 
-    changedQ.forEach(no=>{const r=qMap[no];q.getRange(r.row,2,1,3).setValues([[r.total,r.correct,r.last]]);});
-    if(newQ.length){const rows=newQ.map(no=>{const r=qMap[no];return[no,r.total,r.correct,r.last,r.priority||''];});q.getRange(q.getLastRow()+1,1,rows.length,5).setValues(rows);}
+    changedQ.forEach(no=>{const r=qMap[no];q.getRange(r.row,2,1,4).setValues([[r.total,r.correct,r.last,r.needsReview]]);});
+    if(newQ.length){const rows=newQ.map(no=>{const r=qMap[no];return[no,r.total,r.correct,r.last,r.needsReview];});q.getRange(q.getLastRow()+1,1,rows.length,5).setValues(rows);}
 
     changedS.forEach(k=>{const r=sMap[k];ss.getRange(r.row,2,1,2).setValues([[r.total,r.correct]]);});
     if(newS.length){const rows=newS.map(k=>[k,sMap[k].total,sMap[k].correct]);ss.getRange(ss.getLastRow()+1,1,rows.length,3).setValues(rows);}
@@ -211,7 +200,7 @@ function readQuestionStateMap_(){
   sh.getRange(2,1,sh.getLastRow()-1,5).getValues().forEach(r=>{
     const k=normalizeText(r[0]);if(!k)return;
     const last=r[3] instanceof Date&&!isNaN(r[3])?r[3].toISOString():normalizeText(r[3]);
-    out[k]={total:Number(r[1]||0),correct:Number(r[2]||0),lastAnsweredAt:last,reviewPriority:isReviewPriority_(r[4])};
+    out[k]={total:Number(r[1]||0),correct:Number(r[2]||0),lastAnsweredAt:last,needsReview:r[4]===true};
   });
   return out;
 }
@@ -226,21 +215,19 @@ function readDailyStatMap_(){
 }
 
 function rebuildFlashStats(){
-  const q=qState_(),s=sStats_(),d=dStats_(),priority={};
-  if(q.getLastRow()>=2)q.getRange(2,1,q.getLastRow()-1,5).getValues().forEach(r=>{const no=normalizeText(r[0]);if(no&&isReviewPriority_(r[4]))priority[no]='○';});
+  const q=qState_(),s=sStats_(),d=dStats_();
   [q,s,d].forEach(sh=>{if(sh.getLastRow()>1)sh.getRange(2,1,sh.getLastRow()-1,sh.getLastColumn()).clearContent();});
   const qm={},sm={},dm={},hist=getFlashHistorySheet_(),lr=hist.getLastRow();
-  if(lr>=2)hist.getRange(2,1,lr-1,8).getValues().forEach(r=>{
+  if(lr>=2)hist.getRange(2,1,lr-1,9).getValues().forEach(r=>{
     const no=normalizeText(r[1]);if(!no)return;
     const sub=normalizeText(r[2])||'未分類',ok=r[5]===true||String(r[5]).toLowerCase()==='true',day=normalizeStudyDate_(r[7],r[0]);
     const dt=r[0] instanceof Date?r[0]:new Date(r[0]),valid=!isNaN(dt);
-    if(!qm[no])qm[no]={total:0,correct:0,lastAnsweredAt:null};
+    if(!qm[no])qm[no]={total:0,correct:0,lastAnsweredAt:null,needsReview:false};
     qm[no].total++;if(ok)qm[no].correct++;
-    if(valid&&(!qm[no].lastAnsweredAt||dt.getTime()>qm[no].lastAnsweredAt.getTime()))qm[no].lastAnsweredAt=dt;
+    if(valid&&(!qm[no].lastAnsweredAt||dt.getTime()>qm[no].lastAnsweredAt.getTime())){qm[no].lastAnsweredAt=dt;qm[no].needsReview=!ok||r[8]===true;}
     incMap_(sm,sub,ok);if(day)incMap_(dm,day,ok);
   });
-  const qRows=Object.keys(qm).sort((a,b)=>Number(a)-Number(b)).map(no=>[no,qm[no].total,qm[no].correct,qm[no].lastAnsweredAt||'',priority[no]||'']);
-  Object.keys(priority).filter(no=>!qm[no]).sort((a,b)=>Number(a)-Number(b)).forEach(no=>qRows.push([no,0,0,'',priority[no]]));
+  const qRows=Object.keys(qm).sort((a,b)=>Number(a)-Number(b)).map(no=>[no,qm[no].total,qm[no].correct,qm[no].lastAnsweredAt||'',qm[no].needsReview]);
   if(qRows.length)q.getRange(2,1,qRows.length,5).setValues(qRows);
   writeMap_(s,sm);writeMap_(d,dm);
   return{success:true,questions:Object.keys(qm).length,subjects:Object.keys(sm).length,days:Object.keys(dm).length,answers:Math.max(lr-1,0)};
@@ -270,9 +257,26 @@ function getFlashReviewQueue(){
  const cutoffDay=formatJstDate_(cutoff),wrongByDay={},h=getFlashHistorySheet_(),lr=h.getLastRow();
  if(lr>=2)h.getRange(2,1,lr-1,8).getValues().forEach(r=>{
  const day=normalizeStudyDate_(r[7],r[0]),no=normalizeText(r[1]),correct=r[5]===true||String(r[5]).toLowerCase()==='true';
- if(no&&!correct&&day>=cutoffDay&&day<today){if(!wrongByDay[day])wrongByDay[day]=[];wrongByDay[day].push(no);}
+ if(no&&(!correct||r[8]===true)&&day>=cutoffDay&&day<today){if(!wrongByDay[day])wrongByDay[day]=[];wrongByDay[day].push(no);}
  });
  Object.keys(wrongByDay).forEach(day=>wrongByDay[day]=[...new Set(wrongByDay[day])]);
- const states=readQuestionStateMap_(),priority=Object.keys(states).filter(no=>states[no].reviewPriority);
- return {wrongByDay,priority,asOf:new Date().toISOString()};
+ const states=readQuestionStateMap_();
+ return {wrongByDay,asOf:new Date().toISOString()};
+}
+
+function markFlashResultReview(eventId){
+ const id=normalizeText(eventId);if(!id)throw new Error('EventIDがありません');
+ const lock=LockService.getScriptLock();lock.waitLock(20000);
+ try{
+ const h=getFlashHistorySheet_(),lr=h.getLastRow();
+ if(lr<2)throw new Error('回答の同期待ちです');
+ const ids=h.getRange(2,7,lr-1,1).getDisplayValues().flat(),at=ids.lastIndexOf(id);
+ if(at<0)throw new Error('回答の同期待ちです');
+ const row=at+2,no=normalizeText(h.getRange(row,2).getValue());
+ h.getRange(row,9).setValue(true);
+ const state=qState_(),sr=ensureQuestionStateRow_(state,no);
+ const latest=h.getRange(row,1).getValue(),stored=state.getRange(sr,4).getValue();
+ if(!stored||new Date(latest).getTime()>=new Date(stored).getTime())state.getRange(sr,5).setValue(true);
+ return {success:true};
+ }finally{lock.releaseLock()}
 }
