@@ -51,9 +51,9 @@ function normalizeStudyDate_(v,fallback){
 }
 
 function getFlashSheet_(){const sh=ss_().getSheetByName(FLASH_SHEET_NAME);if(!sh)throw new Error('Flash シートが見つかりません。');return sh;}
-function getFlashHistorySheet_(){const ss=ss_();let sh=ss.getSheetByName(FLASH_HISTORY_SHEET_NAME);if(!sh)sh=ss.insertSheet(FLASH_HISTORY_SHEET_NAME);if(sh.getLastRow()===0)sh.getRange(1,1,1,8).setValues([['日時','問','科目','回答','正答','正誤','EventID','学習日(JST)']]);return sh;}
+function getFlashHistorySheet_(){const ss=ss_();let sh=ss.getSheetByName(FLASH_HISTORY_SHEET_NAME);if(!sh)sh=ss.insertSheet(FLASH_HISTORY_SHEET_NAME);if(sh.getMaxColumns()<9)sh.insertColumnsAfter(sh.getMaxColumns(),9-sh.getMaxColumns());if(sh.getLastRow()===0)sh.getRange(1,1,1,9).setValues([['日時','問','科目','回答','正答','正誤','EventID','学習日(JST)','要復習指定']]);else if(sh.getRange(1,9).getValue()!=='要復習指定')sh.getRange(1,9).setValue('要復習指定');return sh;}
 function getStatsSheet_(name,headers){const ss=ss_();let sh=ss.getSheetByName(name);if(!sh)sh=ss.insertSheet(name);if(sh.getLastRow()===0)sh.getRange(1,1,1,headers.length).setValues([headers]);return sh;}
-function qState_(){return getStatsSheet_(FLASH_Q_STATE,['問','出題数','正答数','最終回答日時','最終要復習']);}
+function qState_(){const sh=getStatsSheet_(FLASH_Q_STATE,['問','出題数','正答数','最終回答日時','最終要復習']);if(sh.getRange(1,5).getValue()!=='最終要復習'){const n=sh.getLastRow()-1;if(n>0)sh.getRange(2,5,n,1).clearContent();sh.getRange(1,5).setValue('最終要復習');}return sh;}
 function sStats_(){return getStatsSheet_(FLASH_S_STATS,['科目','回答数','正解数']);}
 function dStats_(){return getStatsSheet_(FLASH_D_STATS,['日付','回答数','正解数']);}
 
