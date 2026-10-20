@@ -5,7 +5,7 @@ const FLASH_Q_STATE = 'FlashQuestionState';
 const FLASH_S_STATS = 'FlashStatsSubject';
 const FLASH_D_STATS = 'FlashStatsDaily';
 const JST_TIMEZONE = 'Asia/Tokyo';
-const FLASH_DAILY_GOAL = 50;
+const FLASH_DAILY_GOAL = 100;
 
 function doGet(e) {
   const p = e && e.parameter ? e.parameter : {};
@@ -24,6 +24,7 @@ function doGet(e) {
       case 'getFlashDailyStatus': response = {success:true,status:getFlashDailyStatus()}; break;
       case 'getFlashQuestionStats': response = {success:true,stats:getFlashQuestionStats(payload.cardNo)}; break;
       case 'getFlashStatsBundle': response = {success:true,bundle:getFlashStatsBundle()}; break;
+      case 'getFlashReviewQueue': response = {success:true,queue:getFlashReviewQueue()}; break;
       case 'rebuildFlashStats': response = rebuildFlashStats(); break;
       case 'repairFlashStats': response = repairFlashStats(); break;
       default: throw new Error('不明なAPIアクションです。');
@@ -263,3 +264,15 @@ function getFlashStatsBundle(){
 function getFlashStats(){return getFlashStatsBundle().stats;}
 function getFlashQuestionStats(cardNo){const no=normalizeText(cardNo);if(!no)throw new Error('問番号が不正です。');ensureStatsBuilt_();const s=readQuestionStateMap_()[no]||{total:0,correct:0};return{cardNo:no,total:s.total,correct:s.correct,accuracy:s.total?s.correct/s.total:0};}
 function getFlashDailyStatus(){return getFlashStatsBundle().daily;}
+
+function getFlashReviewQueue(){
+ const today=formatJstDate_(new Date()),cutoff=new Date();cutoff.setDate(cutoff.getDate()-8);
+ const cutoffDay=formatJstDate_(cutoff),wrongByDay={},h=getFlashHistorySheet_(),lr=h.getLastRow();
+ if(lr>=2)h.getRange(2,1,lr-1,8).getValues().forEach(r=>{
+ const day=normalizeStudyDate_(r[7],r[0]),no=normalizeText(r[1]),correct=r[5]===true||String(r[5]).toLowerCase()==='true';
+ if(no&&!correct&&day>=cutoffDay&&day<today){if(!wrongByDay[day])wrongByDay[day]=[];wrongByDay[day].push(no);}
+ });
+ Object.keys(wrongByDay).forEach(day=>wrongByDay[day]=[...new Set(wrongByDay[day])]);
+ const states=readQuestionStateMap_(),priority=Object.keys(states).filter(no=>states[no].reviewPriority);
+ return {wrongByDay,priority,asOf:new Date().toISOString()};
+}
