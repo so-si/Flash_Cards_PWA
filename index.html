@@ -323,7 +323,8 @@ function buildReviewStudyQueue(cards){
  }
  // 最初の最大20問だけ、前日の復習対象から均等にランダム選出。
  const reviewCandidates=[...yesterdayIds].filter(no=>byNo.has(no));
- const firstCards=shuffle(reviewCandidates).slice(0,20).map(no=>byNo.get(no));
+ for(let i=reviewCandidates.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[reviewCandidates[i],reviewCandidates[j]]=[reviewCandidates[j],reviewCandidates[i]];}
+ const firstCards=reviewCandidates.slice(0,20).map(no=>byNo.get(no));
  const chosen=new Set(firstCards.map(c=>String(c.no||c.id||'')));
  // 抽選されなかった前日の問題は通常の重み付きランダムへ戻す。
  const remaining=weightedShuffle(cards.filter(c=>!chosen.has(String(c.no||c.id||''))));
