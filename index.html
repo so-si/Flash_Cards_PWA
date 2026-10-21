@@ -316,12 +316,17 @@ function previousJstDay(days){const d=new Date(jstDate()+'T12:00:00+09:00');d.se
 
 function buildReviewStudyQueue(cards){
  const byNo=new Map(cards.map(c=>[String(c.no||c.id||''),c]));
- const yesterday=previousJstDay(1),recentDays=new Set(Array.from({length:7},(_,i)=>previousJstDay(i+1)));
- const wrongByDay=reviewQueueCache.wrongByDay||{},first=new Set((wrongByDay[yesterday]||[]).map(String));
- 
- for(const ev of pendingEvents()){if(ev.isCorrect&&!ev.needsReview)continue;const day=jstDate(ev.timestamp);if(day===yesterday)first.add(String(ev.cardNo));}
- const chosen=new Set(),take=(ids,limit)=>{const available=[...ids].filter(no=>byNo.has(no)&&!chosen.has(no));const ordered=weightedShuffle(available.map(no=>byNo.get(no))).slice(0,limit);ordered.forEach(c=>chosen.add(String(c.no||c.id||'')));return ordered};
- const firstCards=take(first,Infinity),remaining=weightedShuffle(cards.filter(c=>!chosen.has(String(c.no||c.id||''))));
+ const yesterday=previousJstDay(1),wrongByDay=reviewQueueCache.wrongByDay||{};
+ const yesterdayIds=new Set((wrongByDay[yesterday]||[]).map(String));
+ for(const ev of pendingEvents()){
+  if(jstDate(ev.timestamp)===yesterday&&(!ev.isCorrect||ev.needsReview))yesterdayIds.add(String(ev.cardNo));
+ }
+ // 最初の最大20問だけ、前日の復習対象から均等にランダム選出。
+ const reviewCandidates=[...yesterdayIds].filter(no=>byNo.has(no));
+ const firstCards=shuffle(reviewCandidates).slice(0,20).map(no=>byNo.get(no));
+ const chosen=new Set(firstCards.map(c=>String(c.no||c.id||'')));
+ // 抽選されなかった前日の問題は通常の重み付きランダムへ戻す。
+ const remaining=weightedShuffle(cards.filter(c=>!chosen.has(String(c.no||c.id||''))));
  return firstCards.concat(remaining);
 }
 function selectedTopics(){return new Set([...selectedTopicSet])}
