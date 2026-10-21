@@ -17,7 +17,6 @@ function doGet(e) {
     let response;
     switch (p.action) {
       case 'getFlashCards': response = Object.assign({success:true},getFlashCardsPayload_()); break;
-      case 'getLatestTsvVersion': response = Object.assign({success:true},getLatestTsvVersion_()); break;
       case 'markFlashResultReview': response = markFlashResultReview(payload.eventId); break;
       case 'saveFlashResult': response = saveFlashResult(payload.cardNo,payload.subject,payload.userAnswer,payload.correctAnswer,payload.isCorrect,payload.eventId,payload.timestamp,payload.needsReview); break;
       case 'saveFlashResultsBatch': response = saveFlashResultsBatch(payload.events); break;
@@ -279,27 +278,4 @@ function markFlashResultReview(eventId){
  if(!stored||new Date(latest).getTime()>=new Date(stored).getTime())state.getRange(sr,5).setValue(true);
  return {success:true};
  }finally{lock.releaseLock()}
-}
-
-/**
- * Private GitHubの統合TSV最新バージョンを読み取り専用で確認する。
- * GASのスクリプトプロパティ GITHUB_TOKEN にread-only Contents権限の
- * Fine-grained personal access tokenを設定すること。トークンはPWAに返さない。
- * GitHub APIの応答は一時キャッシュする。
- */
-function getLatestTsvVersion_(){
- const cache=CacheService.getScriptCache(),key='flashLatestTsvVersionV1',old=cache.get(key);
- if(old)return JSON.parse(old);
- const token=PropertiesService.getScriptProperties().getProperty('GITHUB_TOKEN');
- if(!token)throw new Error('GITHUB_TOKEN が未設定です。');
- const url='https://api.github.com/repos/so-si/flash_bank/contents/formatted/integrated?ref=main';
- const resp=UrlFetchApp.fetch(url,{muteHttpExceptions:true,headers:{Authorization:'Bearer '+token,Accept:'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'}});
- if(resp.getResponseCode()!==200)throw new Error('GitHub TSV照会エラー（HTTP '+resp.getResponseCode()+'）');
- const items=JSON.parse(resp.getContentText());
- const versions=(Array.isArray(items)?items:[]).filter(x=>x.type==='file'&&/^Flash_Cards_.*_v\d+_\d+問\.tsv$/i.test(x.name)).map(x=>{const m=x.name.match(/_v(\d+)_(\d+)問\.tsv$/i);return{version:Number(m[1]),count:Number(m[2])};});
- if(!versions.length)throw new Error('統合TSVが見つかりません');
- versions.sort((a,b)=>b.version-a.version);
- const result={version:'v'+versions[0].version,count:versions[0].count};
- cache.put(key,JSON.stringify(result),600);
- return result;
 }
