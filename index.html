@@ -229,21 +229,32 @@ function formatDayLabel(v){
   return `${String(y).slice(-2)}年${m}月${d}日（${wd}）`;
 }
 function updateStatsDisplay(){refreshStudyStatusCount();const s=displayStats(),rate=s.total?((s.correct/s.total)*100).toFixed(1):'0.0';$('statsText').textContent=navigator.onLine?`回答 ${s.total}問 / 正解 ${s.correct}問 / 正答率 ${rate}%`:'';$('dailyText').textContent=`今日 ${s.todayCount} / ${DAILY_GOAL}問`;$('dailyDone').textContent=s.todayCount>=DAILY_GOAL?'本日の目標達成':'あと '+Math.max(DAILY_GOAL-s.todayCount,0)+'問';const p=pendingEvents();$('pendingText').textContent=p.length?`未同期の回答：${p.length}件`:'回答履歴は同期済みです。';renderPerformanceStats()}
-async function refreshStats(force=false){if(!navigator.onLine||!token())return;const last=Number(localStorage.getItem(STATS_REFRESHED_KEY)||0);if(!force&&Date.now()-last<300000)return;try{const r=await apiRequest('getFlashStatsBundle'),b=r.bundle||{},stats=b.stats||{},daily=b.daily||{};remoteStats={total:Number(stats.total||0),correct:Number(stats.correct||0),todayCount:Number(daily.count||0),today:daily.date||jstDate()};remoteQuestionStats=b.questions&&typeof b.questions==='object'?b.questions:{};remoteBreakdown={subjects:b.subjects&&typeof b.subjects==='object'?b.subjects:{},days:Array.isArray(b.days)?b.days:[]};saveJson(STATS_KEY,remoteStats);saveJson(QUESTION_STATS_KEY,remoteQuestionStats);saveJson(BREAKDOWN_KEY,remoteBreakdown);localStorage.setItem(STATS_REFRESHED_KEY,String(Date.now()));updateStatsDisplay()}catch(e){console.warn(e)}}function questionDisplayStats(cardNo){const base=remoteQuestionStats[String(cardNo)]||{},pending=pendingEvents().filter(x=>String(x.cardNo)===String(cardNo));return{total:Number(base.total||0)+pending.length,correct:Number(base.correct||0)+pending.filter(x=>x.isCorrect).length,needsReview:!!base.needsReview,lastAnsweredAt:base.lastAnsweredAt||''}}function showQuestionStats(cardNo){const el=$('questionAccuracy'),s=questionDisplayStats(cardNo),rate=s.total?((s.correct/s.total)*100).toFixed(1):'0.0';el.textContent=`この問題：${s.correct} / ${s.total}（${rate}%）`}function promoteSyncedEvent(ev){remoteStats.total=Number(remoteStats.total||0)+1;if(ev.isCorrect)remoteStats.correct=Number(remoteStats.correct||0)+1;const today=jstDate();if(remoteStats.today!==today){remoteStats.today=today;remoteStats.todayCount=0}if(jstDate(ev.timestamp)===today)remoteStats.todayCount=Number(remoteStats.todayCount||0)+1;const no=String(ev.cardNo),s=remoteQuestionStats[no]||{total:0,correct:0};s.total=Number(s.total||0)+1;if(ev.isCorrect)s.correct=Number(s.correct||0)+1;s.lastAnsweredAt=ev.timestamp||new Date().toISOString();s.needsReview=!ev.isCorrect||!!ev.needsReview;remoteQuestionStats[no]=s;if(!remoteBreakdown||typeof remoteBreakdown!=='object')remoteBreakdown={subjects:{},days:[]};if(!remoteBreakdown.subjects)remoteBreakdown.subjects={};const sub=ev.subject||'未分類',ss=remoteBreakdown.subjects[sub]||{total:0,correct:0};ss.total=Number(ss.total||0)+1;if(ev.isCorrect)ss.correct=Number(ss.correct||0)+1;remoteBreakdown.subjects[sub]=ss;const day=jstDate(ev.timestamp);if(!Array.isArray(remoteBreakdown.days))remoteBreakdown.days=[];let ds=remoteBreakdown.days.find(x=>x.date===day);if(!ds){ds={date:day,total:0,correct:0,accuracy:0};remoteBreakdown.days.push(ds)}ds.total=Number(ds.total||0)+1;if(ev.isCorrect)ds.correct=Number(ds.correct||0)+1;ds.accuracy=ds.total?ds.correct/ds.total:0;remoteBreakdown.days=remoteBreakdown.days.sort((a,b)=>String(a.date).localeCompare(String(b.date)))}function persistRemoteStats(){saveJson(STATS_KEY,remoteStats);saveJson(QUESTION_STATS_KEY,remoteQuestionStats);saveJson(BREAKDOWN_KEY,remoteBreakdown)}async function syncPending(){if(!navigator.onLine||!token())return;if(syncPromise)return syncPromise;syncPromise=(async()=>{const q=[...pendingEvents()];if(!q.length)return;let synced=[];try{
-    if(q.length>1){
-      try{await apiRequest('saveFlashResultsBatch',{events:q});synced=q}
-      catch(e){if(!String(e&&e.message||e).includes('不明なAPIアクション'))throw e}
-    }
-    if(!synced.length){
-      const remain=[];
-      for(const ev of q){try{await apiRequest('saveFlashResult',ev);synced.push(ev)}catch(e){remain.push(ev)}}
-      if(remain.length&&synced.length===0)return;
-    }
-    synced.forEach(promoteSyncedEvent);persistRemoteStats();
-    const syncedIds=new Set(synced.map(ev=>ev.eventId));
-    setPending(pendingEvents().filter(ev=>!syncedIds.has(ev.eventId)));
-  }catch(e){console.warn(e)}
-})();try{await syncPromise}finally{syncPromise=null}}
+async function refreshStats(force=false){if(!navigator.onLine||!token())return;const last=Number(localStorage.getItem(STATS_REFRESHED_KEY)||0);if(!force&&Date.now()-last<300000)return;try{const r=await apiRequest('getFlashStatsBundle'),b=r.bundle||{},stats=b.stats||{},daily=b.daily||{};remoteStats={total:Number(stats.total||0),correct:Number(stats.correct||0),todayCount:Number(daily.count||0),today:daily.date||jstDate()};remoteQuestionStats=b.questions&&typeof b.questions==='object'?b.questions:{};remoteBreakdown={subjects:b.subjects&&typeof b.subjects==='object'?b.subjects:{},days:Array.isArray(b.days)?b.days:[]};saveJson(STATS_KEY,remoteStats);saveJson(QUESTION_STATS_KEY,remoteQuestionStats);saveJson(BREAKDOWN_KEY,remoteBreakdown);localStorage.setItem(STATS_REFRESHED_KEY,String(Date.now()));updateStatsDisplay()}catch(e){console.warn(e)}}function questionDisplayStats(cardNo){const base=remoteQuestionStats[String(cardNo)]||{},pending=pendingEvents().filter(x=>String(x.cardNo)===String(cardNo));return{total:Number(base.total||0)+pending.length,correct:Number(base.correct||0)+pending.filter(x=>x.isCorrect).length,needsReview:!!base.needsReview,lastAnsweredAt:base.lastAnsweredAt||''}}function showQuestionStats(cardNo){const el=$('questionAccuracy'),s=questionDisplayStats(cardNo),rate=s.total?((s.correct/s.total)*100).toFixed(1):'0.0';el.textContent=`この問題：${s.correct} / ${s.total}（${rate}%）`}function promoteSyncedEvent(ev){remoteStats.total=Number(remoteStats.total||0)+1;if(ev.isCorrect)remoteStats.correct=Number(remoteStats.correct||0)+1;const today=jstDate();if(remoteStats.today!==today){remoteStats.today=today;remoteStats.todayCount=0}if(jstDate(ev.timestamp)===today)remoteStats.todayCount=Number(remoteStats.todayCount||0)+1;const no=String(ev.cardNo),s=remoteQuestionStats[no]||{total:0,correct:0};s.total=Number(s.total||0)+1;if(ev.isCorrect)s.correct=Number(s.correct||0)+1;s.lastAnsweredAt=ev.timestamp||new Date().toISOString();s.needsReview=!ev.isCorrect||!!ev.needsReview;remoteQuestionStats[no]=s;if(!remoteBreakdown||typeof remoteBreakdown!=='object')remoteBreakdown={subjects:{},days:[]};if(!remoteBreakdown.subjects)remoteBreakdown.subjects={};const sub=ev.subject||'未分類',ss=remoteBreakdown.subjects[sub]||{total:0,correct:0};ss.total=Number(ss.total||0)+1;if(ev.isCorrect)ss.correct=Number(ss.correct||0)+1;remoteBreakdown.subjects[sub]=ss;const day=jstDate(ev.timestamp);if(!Array.isArray(remoteBreakdown.days))remoteBreakdown.days=[];let ds=remoteBreakdown.days.find(x=>x.date===day);if(!ds){ds={date:day,total:0,correct:0,accuracy:0};remoteBreakdown.days.push(ds)}ds.total=Number(ds.total||0)+1;if(ev.isCorrect)ds.correct=Number(ds.correct||0)+1;ds.accuracy=ds.total?ds.correct/ds.total:0;remoteBreakdown.days=remoteBreakdown.days.sort((a,b)=>String(a.date).localeCompare(String(b.date)))}function persistRemoteStats(){saveJson(STATS_KEY,remoteStats);saveJson(QUESTION_STATS_KEY,remoteQuestionStats);saveJson(BREAKDOWN_KEY,remoteBreakdown)}async function syncPending(){
+ if(!navigator.onLine||!token())return;
+ if(syncPromise)return syncPromise;
+ syncPromise=(async()=>{
+  // GASは一度のリクエストにつき最大100回答。余裕をもって50件ずつ送る。
+  const snapshot=[...pendingEvents()];
+  for(let offset=0;offset<snapshot.length;offset+=50){
+   const batch=snapshot.slice(offset,offset+50);
+   try{
+    if(batch.length===1)await apiRequest('saveFlashResult',batch[0]);
+    else await apiRequest('saveFlashResultsBatch',{events:batch});
+   }catch(e){
+    console.warn('回答の同期に失敗しました。未同期の回答は端末に保持します。',e);
+    setMessage('回答の同期に失敗しました（残り'+pendingEvents().length+'件）。通信状態とGASの設定を確認してください。');
+    break;
+   }
+   // この50件の成功を確認してから削除。新たに追加された回答は残す。
+   const ids=new Set(batch.map(ev=>ev.eventId));
+   setPending(pendingEvents().filter(ev=>!ids.has(ev.eventId)));
+   batch.forEach(promoteSyncedEvent);
+   persistRemoteStats();
+   updateStatsDisplay();
+  }
+ })();
+ try{await syncPromise}finally{syncPromise=null}
+}
 function schedulePendingSync(delay=2500){if(pendingSyncTimer)clearTimeout(pendingSyncTimer);pendingSyncTimer=setTimeout(()=>{pendingSyncTimer=null;syncPending().then(syncReviewMarks)},delay)}
 function openReferenceDb(){return new Promise((resolve,reject)=>{const r=indexedDB.open(REFERENCE_DB,1);r.onupgradeneeded=()=>{if(!r.result.objectStoreNames.contains(REFERENCE_STORE))r.result.createObjectStore(REFERENCE_STORE)};r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error)})}
 async function saveReferenceBundle(bundle){referenceBundleCache=bundle;referenceDocCache=null;referenceSectionMapCache=null;const db=await openReferenceDb();return new Promise((resolve,reject)=>{const tx=db.transaction(REFERENCE_STORE,'readwrite');tx.objectStore(REFERENCE_STORE).put(bundle,REFERENCE_KEY);tx.oncomplete=()=>{db.close();resolve()};tx.onerror=()=>{db.close();reject(tx.error)}})}
